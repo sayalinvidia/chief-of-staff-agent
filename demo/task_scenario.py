@@ -157,7 +157,7 @@ def refresh(seed, state):
     for i, ((sender, subject, body), when, task) in enumerate(zip(specs, times, TASKS), 1):
         result = seed.mail_import_request(svc["gmail"], account, sender, subject, body, i, when, run_id, important=False).execute()
         item = {"id": result["id"], "thread_id": result.get("threadId", result["id"]), "task_key": task["key"]}
-        item["url"] = f"https://mail.google.com/mail/u/0/#all/{item['thread_id']}"
+        item["url"] = f"https://mail.google.com/mail/u/{account}/#all/{item['thread_id']}"
         state["emails"].append(item)
         evidence[task["key"]] = item["url"]
         save()

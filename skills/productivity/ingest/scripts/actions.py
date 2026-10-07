@@ -87,8 +87,25 @@ def headers(payload: dict[str, Any]) -> dict[str, str]:
     return {h.get("name", "").lower(): h.get("value", "") for h in payload.get("headers", [])}
 
 
+_MAILBOX: list[str] = []
+
+
+def mailbox() -> str:
+    """The signed-in Gmail address, used in place of the account index in web links.
+
+    `/mail/u/0/` opens whichever Google account the browser signed into first, which in a
+    multi-account browser is often not the demo mailbox; `/mail/u/<address>/` is unambiguous."""
+    if not _MAILBOX:
+        try:
+            address = service("gmail", "v1").users().getProfile(userId="me").execute().get("emailAddress")
+            _MAILBOX.append(address if isinstance(address, str) and "@" in address else "0")
+        except Exception:
+            _MAILBOX.append("0")
+    return _MAILBOX[0]
+
+
 def gmail_url(thread_id: str | None) -> str | None:
-    return f"https://mail.google.com/mail/u/0/#all/{thread_id}" if thread_id else None
+    return f"https://mail.google.com/mail/u/{mailbox()}/#all/{thread_id}" if thread_id else None
 
 
 def gmail_get(args: argparse.Namespace) -> None:

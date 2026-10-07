@@ -45,6 +45,7 @@ class GoogleBatchTests(unittest.TestCase):
     def setUp(self):
         self.sleep = patch.object(seed.time, 'sleep').start()
         patch.object(seed.random, 'uniform', return_value=0).start()
+        patch.object(seed, '_batch_http', return_value=None).start()  # sequential path; FakeAPI has no transport
         self.addCleanup(patch.stopall)
 
     def test_retries_only_rejected_imports_and_preserves_result_order(self):

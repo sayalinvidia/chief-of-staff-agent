@@ -39,7 +39,7 @@ class BriefTests(unittest.TestCase):
         self.assertEqual(len(packet["conflicts"]), 1)
         self.assertEqual(len(packet["conflicts"][0]["events"]), 3)
         self.assertEqual(packet["mail"][0]["id"], "msg-urgent")
-        self.assertEqual(packet["mail"][0]["url"], "https://mail.google.com/mail/u/0/#all/thread-urgent")
+        self.assertEqual(packet["mail"][0]["url"], "https://mail.google.com/mail/u/owner@example.com/#all/thread-urgent")
         self.assertEqual(packet["source_status"], {"calendar": "ok", "gmail": "ok", "drive": "ok"})
         self.assertNotIn("trackers", packet)
         self.assertIn("three-section", packet["instruction"])
@@ -59,7 +59,7 @@ class BriefTests(unittest.TestCase):
                 self.assertNotIn("signal_score", item)
                 self.assertNotIn("signals", item)
         self.assertTrue(packet["mail"][0]["snippet"])
-        self.assertEqual(packet["mail"][0]["url"], "https://mail.google.com/mail/u/0/#all/thread-urgent")
+        self.assertEqual(packet["mail"][0]["url"], "https://mail.google.com/mail/u/owner@example.com/#all/thread-urgent")
 
     def test_packet_respects_context_budget(self):
         snapshot = json.loads(FIXTURE.read_text(encoding="utf-8"))

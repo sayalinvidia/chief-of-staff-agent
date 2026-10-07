@@ -124,7 +124,7 @@ class GmailUrlTests(unittest.TestCase):
                                   newer_than_days=90, max_chars=4)
         with patch.object(actions, "service", return_value=api) as service, patch.object(actions, "emit") as emit:
             getattr(actions, "gmail_" + operation)(args)
-        service.assert_called_once_with("gmail", "v1")
+        service.assert_called_with("gmail", "v1")  # one extra call resolves the mailbox for links
         emit.assert_called_once()
         result = emit.call_args.args[0]
         result = result if operation == "get" else result["matches" if operation == "search" else "messages"][0]

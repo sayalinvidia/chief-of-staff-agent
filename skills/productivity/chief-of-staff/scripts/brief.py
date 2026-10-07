@@ -277,7 +277,7 @@ def build_packet(snapshot: dict[str, Any], args: argparse.Namespace) -> dict[str
         ranked_mail.append({
             "id": message.get("id"),
             "thread_id": message.get("thread_id"),
-            "url": f"https://mail.google.com/mail/u/0/#all/{message.get('thread_id')}",
+            "url": f"https://mail.google.com/mail/u/{self_email or '0'}/#all/{message.get('thread_id')}",
             "from": message.get("from"),
             "subject": message.get("subject"),
             "date": message.get("date"),
