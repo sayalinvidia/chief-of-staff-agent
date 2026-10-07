@@ -63,7 +63,7 @@ For immediate or scheduled Second Brain updates, read **Updating Second Brain** 
 | Script | Purpose | Usage |
 |---|---|---|
 | `ingest.py` | Saves a bounded snapshot of Gmail, Calendar, Drive, and unfinished Google Tasks. | Follow the ingest skill. |
-| `daily_brief.py` | Runs ingest and builds, saves, and prints a bounded evidence packet. | Use for Start of Day or Updating Second Brain, following that task's guidance. |
+| `daily_brief.py` | Prints today's saved brief when a scheduled run produced one; otherwise runs ingest and builds, saves, and prints a bounded evidence packet. | Use for Start of Day or Updating Second Brain, following that task's guidance. |
 | `brief.py` | Prints compact planning JSON from the snapshot and relevant Second Brain context. | Called by `daily_brief.py`, or run after ingest. Not an `actions.py` command. |
 | `actions.py` | Searches and reads Gmail, reads and saves drafts, searches Drive, reads and edits Docs/Sheets/Slides, and creates Calendar events. | Use `run-actions.sh` for `SERVICE COMMAND [arguments]`. It initializes and runs the bundled helper. Before use, read [Command reference](references/command-reference.md) unless its contents are already available in context. |
 | `second_brain.py` | Searches or reads notes from the configured Second Brain vault. | `second_brain.py search 'terms' --max 3` or `second_brain.py read 'relative/note.md'`. |
@@ -116,13 +116,12 @@ For explicitly requested status-only changes, use `--status-only` instead of `--
 For scripts without a launcher, insert the required command below. Run setup and execution together. Do not split them across shell calls or rely on variables from earlier calls.
 
 ```bash
-if [ -n "${HERMES_HOME:-}" ]; then
-  COS_HOME="$HERMES_HOME"
-elif [ -n "${LOCALAPPDATA:-}" ]; then
-  COS_HOME="$LOCALAPPDATA/hermes"
-else
-  COS_HOME="$HOME/.hermes"
-fi
+# First Hermes home that holds this skill: HERMES_HOME, then each profile, then the root install.
+for COS_HOME in "${HERMES_HOME:-}" "${LOCALAPPDATA:-$HOME/.hermes}/hermes/profiles/"*/ "${LOCALAPPDATA:-}/hermes" "$HOME/.hermes/profiles/"*/ "$HOME/.hermes"; do
+  COS_HOME="${COS_HOME%/}"
+  [ -n "$COS_HOME" ] && [ -f "$COS_HOME/skills/productivity/chief-of-staff/scripts/daily_brief.py" ] && break
+done
+export HERMES_HOME="$COS_HOME"   # the scripts read credentials and state from here
 
 if [ -f "$COS_HOME/hermes-agent/venv/Scripts/python.exe" ]; then
   PYTHON="$COS_HOME/hermes-agent/venv/Scripts/python.exe"
@@ -155,7 +154,7 @@ Start of Day is a read-only briefing. Gather evidence and return the brief. Do n
 
 **Example cues:** “What should we work on today?”, “What are today’s priorities?”, or “Give me my daily brief.” Run this workflow without asking whether the user wants a daily brief.
 
-### 1. Gather evidence
+### 1. Return today’s saved brief, otherwise gather evidence
 
 Run this command exactly once, and only when the current request asks for a daily brief or broad prioritization. Do not run it for focused tasks or follow-ups. Use this skill’s **How to run the scripts** subsection:
 
@@ -163,7 +162,9 @@ Run this command exactly once, and only when the current request asks for a dail
 "$PYTHON" "$DAILY_BRIEF"
 ```
 
-Wait for completion. Use the returned JSON. If truncated, read only the file at `packet_path`, following the tool’s offsets. Do not search for or read packets or snapshots from previous runs. Never rerun the command or run `ingest.py` or `brief.py` separately.
+Wait for completion. If the first output line is `{"saved_brief": ...}`, a scheduled run already produced today’s brief: return the Markdown that follows it exactly as written and stop. Do not add anything before or after it, including introductions, summaries, follow-up questions, or offers. Skip steps 2–5. Do not run other scripts or read other files.
+
+Otherwise the output is an evidence packet. Use the returned JSON. If truncated, read only the file at `packet_path`, following the tool’s offsets. Do not search for or read packets, snapshots, or saved briefs from previous runs. Never rerun the command or run `ingest.py` or `brief.py` separately.
 
 For steps 2–5, use only the packet as evidence. Follow its `instruction` field. No further tool calls, raw snapshots, source documents, extra lookups, parsers, output redirection, or task execution. Read or discuss trackers only on request.
 

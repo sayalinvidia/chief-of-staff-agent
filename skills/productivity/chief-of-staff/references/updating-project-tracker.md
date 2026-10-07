@@ -35,13 +35,13 @@ If no changes are supported, report that without modifying the tracker.
 - When changing status with `--include-details`, include any existing `blocker`: preserve or revise its text, or use `""` only when evidence confirms resolution.
 - Omit unchanged or unsupported optional fields. Preserve formulas, source metric names, units, and approval scope.
 - Batch changes in one `sheets update-lanes` call with the verified spreadsheet ID, actual tab name via `--sheet`, and `--confirm`. Use `--updates-file -` with the quoted input format in the [Supporting notes](command-reference.md#supporting-notes) section of the command reference.
-- Read back once to verify writes and catch missed evidence-backed changes.
+- The command's `rows` field is the post-write read-back of each changed lane. Use it to verify the writes; do not run `sheets get` again afterwards.
 
 ## 4. Report results
 
 Report only requested tracker work using collected evidence.
 
-- **Updated:** Table: **Lane | Original status | Updated status | Reason**. One row per changed lane with pre-edit and confirmed read-back statuses and a source-linked reason. Say if nothing changed.
+- **Updated:** Table: **Lane | Original status | Updated status | Reason**. One row per changed lane with pre-edit statuses, the statuses confirmed in the command's `rows` output, and a source-linked reason. Say if nothing changed.
 - **Still needs action:** Missing updates or blockers requiring others’ action. Mark unclear ownership as unconfirmed.
 - **Waiting on you:** Only actions or decisions explicitly assigned to the user. Presenting, attending, or receiving email does not establish ownership.
 - **Next step:** At most one question offering a draft to a verified contact who owes information. No unrelated edits, requests for the user’s decisions from others, or drafts saved without approval.

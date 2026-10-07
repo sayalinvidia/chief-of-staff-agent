@@ -6,13 +6,21 @@ if [[ $# -eq 0 ]]; then
   printf '%s\n' 'Supply SERVICE COMMAND [arguments], or --batch with action commands on standard input.' >&2
   exit 2
 fi
-if [[ -n "${HERMES_HOME:-}" ]]; then
-  COS_ACTION_HOME="$HERMES_HOME"
-elif [[ -n "${LOCALAPPDATA:-}" ]]; then
-  COS_ACTION_HOME="$LOCALAPPDATA/hermes"
-else
-  COS_ACTION_HOME="$HOME/.hermes"
-fi
+COS_ACTION_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# Hermes home: HERMES_HOME, else the home this script is installed in (works for cron and CLI
+# runs that do not export HERMES_HOME), else the root install.
+COS_ACTION_HOME=""
+for candidate in "${HERMES_HOME:-}" "$COS_ACTION_DIR/../../../.." "${LOCALAPPDATA:-}/hermes" "$HOME/.hermes"; do
+  [[ -n "$candidate" && -d "$candidate/hermes-agent" ]] || continue
+  COS_ACTION_HOME="$(cd -- "$candidate" && pwd)"; break
+done
+: "${COS_ACTION_HOME:=${HERMES_HOME:-$HOME/.hermes}}"
+# actions.py resolves credentials from HERMES_HOME; keep it on the same home as the launcher,
+# as a Windows path under Git Bash so Python does not see /c/Users/... .
+case "$(uname -s)" in
+  MINGW*|MSYS*) COS_ACTION_HOME="$(cygpath -m "$COS_ACTION_HOME")" ;;
+esac
+export HERMES_HOME="$COS_ACTION_HOME"
 if [[ -f "$COS_ACTION_HOME/hermes-agent/venv/Scripts/python.exe" ]]; then
   COS_ACTION_PYTHON="$COS_ACTION_HOME/hermes-agent/venv/Scripts/python.exe"
 elif [[ -x "$COS_ACTION_HOME/hermes-agent/venv/bin/python" ]]; then
@@ -20,7 +28,6 @@ elif [[ -x "$COS_ACTION_HOME/hermes-agent/venv/bin/python" ]]; then
 else
   COS_ACTION_PYTHON="$(command -v python3 || command -v python)"
 fi
-COS_ACTION_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 COS_ACTION_SCRIPT="$COS_ACTION_DIR/../../ingest/scripts/actions.py"
 if [[ ! -f "$COS_ACTION_SCRIPT" ]]; then
   printf '%s\n' "Bundled actions.py is missing: $COS_ACTION_SCRIPT" >&2

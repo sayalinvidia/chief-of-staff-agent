@@ -69,6 +69,7 @@ def ensure_resources(seed, svc, state, *, checkpoint=lambda: None, restore=False
     """Import native files, retaining their IDs and links on subsequent resets."""
     from googleapiclient.http import MediaFileUpload
     resources = state.setdefault("task_resources", {})
+    restores = []
     for key, (title, filename) in RESOURCES.items():
         slides = filename.endswith(".pptx")
         native = "application/vnd.google-apps." + ("presentation" if slides else "document")
@@ -77,8 +78,23 @@ def ensure_resources(seed, svc, state, *, checkpoint=lambda: None, restore=False
             resources[key] = seed.upload_template(svc["drive"], state["folder"]["id"], filename, title, native)
             checkpoint()
         elif restore:
-            svc["drive"].files().update(fileId=resources[key]["id"], body={"mimeType": native, "name": title},
-                media_body=MediaFileUpload(str(seed.ROOT / "demo" / "templates" / filename), mimetype=office, resumable=False), fields="id").execute()
+            restores.append((resources[key]["id"], title, filename, native, office))
+
+    def restore_one(drive, file_id, title, filename, native, office):
+        drive.files().update(fileId=file_id, body={"mimeType": native, "name": title},
+            media_body=MediaFileUpload(str(seed.ROOT / "demo" / "templates" / filename), mimetype=office, resumable=False), fields="id").execute()
+
+    make_drive = getattr(seed, "drive_service", None)
+    if len(restores) > 1 and make_drive is not None:
+        # Each Office re-import is a slow, independent upload; run them concurrently on separate clients.
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=len(restores)) as pool:
+            futures = [pool.submit(lambda item: restore_one(make_drive(), *item), item) for item in restores]
+            for future in futures:
+                future.result()
+    else:
+        for item in restores:
+            restore_one(svc["drive"], *item)
 
 
 def tracked_mail_metadata(gmail, items):

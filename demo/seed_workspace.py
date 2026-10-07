@@ -43,7 +43,14 @@ BACKGROUND_EMAIL_COUNT = 70
 CONTACT_EMAIL_COUNT = 1
 EMAIL_REFERENCE_HOUR = 9
 EMAIL_REFERENCE_MINUTE = 12
-BATCH_SIZE = 5
+# Google accepts up to 50 requests per batch (100 for Gmail). The per-request retry in
+# execute_batched handles throttling, so batches no longer need to be tiny.
+BATCH_SIZE = 25
+# messages.import costs 25 quota units against a 250 units/second/user Gmail limit.
+GMAIL_IMPORT_BATCH_SIZE = 10
+# Concurrent batches per call; Gmail imports stay at two to remain under that quota.
+PARALLEL_BATCHES = 4
+GMAIL_IMPORT_WORKERS = 2
 TASKS_SCOPE = "https://www.googleapis.com/auth/tasks"
 
 BACKGROUND_IDENTITIES = [
@@ -84,12 +91,42 @@ BACKGROUND_AUDIENCES = ["Americas", "EMEA", "APAC", "Remote", "Santa Clara", "Au
 
 
 
-def hermes_home() -> Path:
-    if os.environ.get("HERMES_HOME"):
-        return Path(os.environ["HERMES_HOME"]).expanduser()
+def _hermes_root() -> Path:
     if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
         return Path(os.environ["LOCALAPPDATA"]) / "hermes"
     return Path.home() / ".hermes"
+
+
+def _active_profile() -> str | None:
+    """Profile name from HERMES_PROFILE, else the one the Hermes desktop app has selected."""
+    name = os.environ.get("HERMES_PROFILE", "").strip()
+    if name:
+        return name
+    if os.name == "nt" and os.environ.get("APPDATA"):
+        try:
+            data = json.loads((Path(os.environ["APPDATA"]) / "Hermes" / "active-profile.json").read_text(encoding="utf-8"))
+            name = str(data.get("profile", "")).strip()
+            return name or None
+        except (OSError, ValueError, AttributeError):
+            return None
+    return None
+
+
+def hermes_home() -> Path:
+    """HERMES_HOME if set; otherwise the active profile's folder when it holds the demo state, else the Hermes root."""
+    if os.environ.get("HERMES_HOME"):
+        return Path(os.environ["HERMES_HOME"]).expanduser()
+    root = _hermes_root()
+    profile = _active_profile()
+    home = root
+    if profile:
+        candidate = root / "profiles" / profile
+        if (candidate / STATE_FILE).is_file() or (candidate / "google_token.json").is_file():
+            home = candidate
+    # The ingest/brief helpers read HERMES_HOME themselves (credentials, token paths), so
+    # publish the resolved home once to keep every script on the same profile.
+    os.environ["HERMES_HOME"] = str(home)
+    return home
 
 
 def state_path() -> Path:
@@ -155,6 +192,11 @@ def task_service(creds, *, required: bool = False):
     return None
 
 
+def drive_service():
+    """A fresh Drive client; googleapiclient services are not thread-safe, so parallel uploads each need one."""
+    return build("drive", "v3", credentials=credentials(), cache_discovery=False)
+
+
 def services(*, tasks_required: bool = False):
     creds = credentials()
     return {
@@ -194,55 +236,85 @@ def _rate_limit_delay(error: Exception) -> float:
             return 0.0
 
 
-def execute_batched(api: Any, requests: list[Any], *, ignore_errors: bool = False) -> list[Any]:
-    """Limit concurrency and retry explicit throttling failures, never successes."""
+def _batch_http():
+    """A per-thread authorized transport; httplib2 connections must not be shared across threads."""
+    try:
+        import httplib2
+        from google_auth_httplib2 import AuthorizedHttp
+        return AuthorizedHttp(credentials(), http=httplib2.Http())
+    except Exception:
+        return None
+
+
+def _run_batch_chunk(api: Any, requests: list[Any], pending: list[int], results: list[Any], *, ignore_errors: bool, http: Any = None) -> None:
+    """Execute one chunk, retrying only requests Google explicitly throttled."""
+    retries = 0
+    while pending:
+        errors = {}
+        completed = set()
+        batch = api.new_batch_http_request()
+
+        def callback(request_id, response, exception):
+            index = int(request_id)
+            if exception is None:
+                results[index] = response
+                completed.add(index)
+            else:
+                errors[index] = exception
+
+        for index in pending:
+            batch.add(requests[index], callback=callback, request_id=str(index))
+        try:
+            batch.execute(http=http) if http is not None else batch.execute()
+        except HttpError as error:
+            if not _is_rate_limit(error):
+                raise  # An ambiguous write failure must not be blindly replayed.
+            errors.update({i: error for i in pending if i not in completed and i not in errors})
+        unreported = set(pending) - completed - errors.keys()
+        if unreported:
+            raise RuntimeError("Google batch returned incomplete results; check live data before retrying")
+        retry = []
+        for index, error in sorted(errors.items()):
+            if _is_rate_limit(error):
+                retry.append(index)
+            elif not ignore_errors:
+                raise RuntimeError(f"Google batch request {index + 1} failed: {error}") from error
+        if not retry:
+            break
+        if retries >= 5:
+            raise RuntimeError(f"Google is still rate limiting request {retry[0] + 1} after 5 retries. Reset stopped; wait before retrying.") from errors[retry[0]]
+        delay = max(2 ** retries + random.uniform(0, 1), *(_rate_limit_delay(errors[i]) for i in retry))
+        if delay > 60:
+            raise RuntimeError(f"Google asks to wait {delay:.0f} seconds before retrying. Reset stopped.") from errors[retry[0]]
+        print(f"Google rate limited {len(retry)} request(s); retrying only those in {delay:.1f}s (attempt {retries + 1}/5).", file=sys.stderr, flush=True)
+        time.sleep(delay)
+        pending = retry
+        retries += 1
+
+
+def execute_batched(api: Any, requests: list[Any], *, ignore_errors: bool = False,
+                    batch_size: int | None = None, workers: int | None = None) -> list[Any]:
+    """Limit concurrency and retry explicit throttling failures, never successes.
+
+    Google processes each batch mostly serially (about 2-3 s per Calendar or Gmail batch), so
+    independent chunks run concurrently, each on its own transport. Without live credentials
+    (unit tests) chunks run one after another on the service's shared transport.
+    """
+    size = batch_size or BATCH_SIZE
     results: list[Any] = [None] * len(requests)
-    for offset in range(0, len(requests), BATCH_SIZE):
+    chunks = [list(range(offset, min(offset + size, len(requests)))) for offset in range(0, len(requests), size)]
+    parallel = min(workers or PARALLEL_BATCHES, len(chunks))
+    if parallel > 1 and _batch_http() is not None:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=parallel) as pool:
+            futures = [pool.submit(_run_batch_chunk, api, requests, chunk, results, ignore_errors=ignore_errors, http=_batch_http()) for chunk in chunks]
+            for future in futures:
+                future.result()
+        return results
+    for offset, chunk in enumerate(chunks):
         if offset:
             time.sleep(0.25)
-        pending = list(range(offset, min(offset + BATCH_SIZE, len(requests))))
-        retries = 0
-        while pending:
-            errors = {}
-            completed = set()
-            batch = api.new_batch_http_request()
-
-            def callback(request_id, response, exception):
-                index = int(request_id)
-                if exception is None:
-                    results[index] = response
-                    completed.add(index)
-                else:
-                    errors[index] = exception
-
-            for index in pending:
-                batch.add(requests[index], callback=callback, request_id=str(index))
-            try:
-                batch.execute()
-            except HttpError as error:
-                if not _is_rate_limit(error):
-                    raise  # An ambiguous write failure must not be blindly replayed.
-                errors.update({i: error for i in pending if i not in completed and i not in errors})
-            unreported = set(pending) - completed - errors.keys()
-            if unreported:
-                raise RuntimeError("Google batch returned incomplete results; check live data before retrying")
-            retry = []
-            for index, error in sorted(errors.items()):
-                if _is_rate_limit(error):
-                    retry.append(index)
-                elif not ignore_errors:
-                    raise RuntimeError(f"Google batch request {index + 1} failed: {error}") from error
-            if not retry:
-                break
-            if retries >= 5:
-                raise RuntimeError(f"Google is still rate limiting request {retry[0] + 1} after 5 retries. Reset stopped; wait before retrying.") from errors[retry[0]]
-            delay = max(2 ** retries + random.uniform(0, 1), *(_rate_limit_delay(errors[i]) for i in retry))
-            if delay > 60:
-                raise RuntimeError(f"Google asks to wait {delay:.0f} seconds before retrying. Reset stopped.") from errors[retry[0]]
-            print(f"Google rate limited {len(retry)} request(s); retrying only those in {delay:.1f}s (attempt {retries + 1}/5).", file=sys.stderr, flush=True)
-            time.sleep(delay)
-            pending = retry
-            retries += 1
+        _run_batch_chunk(api, requests, chunk, results, ignore_errors=ignore_errors)
     return results
 
 
@@ -425,7 +497,7 @@ def create_emails(gmail, deck_url: str, sheet_url: str, doc_url: str, resources:
         )
         for index, (sender, subject, body, important) in enumerate(data, 1)
     ]
-    results = execute_batched(gmail, requests)
+    results = execute_batched(gmail, requests, batch_size=GMAIL_IMPORT_BATCH_SIZE, workers=GMAIL_IMPORT_WORKERS)
     created = [
         {"id": result["id"], "thread_id": result.get("threadId", result["id"]), "url": f"https://mail.google.com/mail/u/0/#all/{result.get('threadId', result['id'])}"}
         for result in results
@@ -754,21 +826,60 @@ def seed(week_of: date) -> dict:
         raise
 
 
+def relink_saved_briefs(previous_emails: list[dict], emails: list[dict], today: date) -> dict:
+    """Point today's saved brief (and the cron output it came from) at the re-imported mail.
+
+    Reset deletes and re-imports every seeded message, so Gmail assigns new IDs. The morning
+    brief links threads by ID; without this, Start of Day serves a brief full of dead links and
+    follow-up tasks hit 404s. Seed order is deterministic, so old and new lists align by index."""
+    if len(previous_emails) != len(emails):
+        return {"relinked": 0, "reason": "email count changed"}
+    mapping = {}
+    for old, new in zip(previous_emails, emails):
+        # Every ID this seat has ever had (accumulated across resets) now points at the new one,
+        # so a brief written several resets ago still relinks. Aliases ride along in the state file.
+        aliases = set(old.get("aliases", []))
+        for key in ("thread_id", "id"):
+            if old.get(key):
+                aliases.add(old[key])
+        aliases.discard(new.get("thread_id")); aliases.discard(new.get("id"))
+        new["aliases"] = sorted(aliases)
+        for alias in aliases:
+            mapping[alias] = new.get("thread_id") or new["id"]
+    if not mapping:
+        return {"relinked": 0}
+    targets = [ROOT / "CoS_Workspace" / "DailyBriefs" / f"{today.isoformat()}.md"]
+    targets.extend((hermes_home() / "cron" / "output").glob(f"*/{today.isoformat()}_*.md"))
+    relinked = 0
+    for path in targets:
+        if not path.is_file():
+            continue
+        text = original = path.read_text(encoding="utf-8")
+        for old_id, new_id in mapping.items():
+            text = text.replace(old_id, new_id)
+        if text != original:
+            path.write_text(text, encoding="utf-8", newline="\n")
+            relinked += 1
+    return {"relinked": relinked}
+
+
 def reset_in_place(state: dict, week_of: date) -> dict:
     svc = services(tasks_required=bool(state.get("task_list")))
+    previous_emails = list(state.get("emails", []))
     template_hash = deck_template_hash()
     reset_deck_baseline(svc["slides"], state["slides"]["id"], drive=svc["drive"],
                         restore_template=state["slides"].get("template_sha256") != template_hash)
     state["slides"]["template_sha256"] = template_hash
     clear_seeded_tasks(svc["tasks"], state)
     remove_dynamic_items(state, svc, clear_drafts=True)
-    task_scenario.ensure_resources(SimpleNamespace(ROOT=ROOT, upload_template=upload_template), svc, state, restore=True)
+    task_scenario.ensure_resources(SimpleNamespace(ROOT=ROOT, upload_template=upload_template, drive_service=drive_service), svc, state, restore=True)
     state["emails"], evidence = create_emails(svc["gmail"], state["slides"]["url"], state["sheet"]["url"], state["doc"]["url"], state["task_resources"])
     create_tasks(svc["tasks"], state, evidence)
     reset_sheet_baseline(svc["sheets"], state, evidence, local_now().date().isoformat())
     reset_original_sheet(svc["drive"], svc["sheets"], state, evidence, local_now().date().isoformat())
     state["events"] = create_calendar(svc["calendar"], week_of, state["slides"]["url"], state["doc"]["url"], state["sheet"]["url"])
     state["week_of"] = week_of.isoformat()
+    state["saved_brief"] = relink_saved_briefs(previous_emails, state["emails"], local_now().date())
     state_path().write_text(json.dumps(state, indent=2), encoding="utf-8")
     return state
 

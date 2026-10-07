@@ -489,7 +489,16 @@ def sheets_update_lanes(args: argparse.Namespace) -> None:
         spreadsheetId=args.spreadsheet_id,
         body={"valueInputOption": "USER_ENTERED", "data": data},
     ).execute()
-    emit({"status": "updated", "spreadsheet_id": args.spreadsheet_id, "lanes": lanes, "updated_rows": result.get("totalUpdatedRows", 0), "updated_cells": result.get("totalUpdatedCells", 0)})
+    # Read the changed rows back here so the caller's verification step needs no second call.
+    header = current[0] if current else []
+    ranges = [f"'{args.sheet}'!A{row_by_lane[lane]}:H{row_by_lane[lane]}" for lane in lanes]
+    readback = api.spreadsheets().values().batchGet(spreadsheetId=args.spreadsheet_id, ranges=ranges).execute()
+    value_ranges = readback.get("valueRanges", []) if isinstance(readback, dict) else []
+    rows = []
+    for lane, block in zip(lanes, value_ranges):
+        values = (block.get("values") or [[]])[0]
+        rows.append({"lane": lane, **{str(header[i]): values[i] if i < len(values) else "" for i in range(1, min(len(header), 8))}})
+    emit({"status": "updated", "spreadsheet_id": args.spreadsheet_id, "lanes": lanes, "updated_rows": result.get("totalUpdatedRows", 0), "updated_cells": result.get("totalUpdatedCells", 0), "rows": rows, "verified": True})
 
 
 def _slide_text(slide: dict[str, Any]) -> str:
