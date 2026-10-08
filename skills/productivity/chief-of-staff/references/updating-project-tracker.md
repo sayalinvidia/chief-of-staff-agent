@@ -6,7 +6,13 @@ A tracker update request authorizes evidence-backed changes to the requested tra
 
 Use [Command reference](command-reference.md) for `actions.py` commands and arguments.
 
-1. **Read the tracker and its evidence in one call.** Run `sheets tracker-evidence` once with the spreadsheet ID, URL, or title (it resolves titles itself; do not run `drive search` or `sheets get` first) and `--sheet` for the tab. It returns every lane plus the recent mail from each lane’s owner or naming the lane, with bounded excerpts and links. Identify each requested entry’s deliverable, status, and blocker, plus the tracker’s status definitions. Do not search local notes for the tracker.
+1. **Read the tracker and its evidence in one call.** Run exactly this, once, replacing only the title or ID (it resolves titles itself; do not run `drive search` or `sheets get` first, and do not open the command reference for this step):
+
+   ```bash
+   bash 'SKILL_ROOT/scripts/run-actions.sh' sheets tracker-evidence 'TRACKER TITLE OR SPREADSHEET_ID' --sheet 'Campaign Lanes'
+   ```
+
+   Use `--sheet` for a different tab. It returns every lane plus the recent mail from each lane’s owner or naming the lane, with bounded excerpts and links. Identify each requested entry’s deliverable, status, and blocker, plus the tracker’s status definitions. Do not search local notes for the tracker.
 2. **Assess from that packet plus context.** Combine the returned messages with evidence already in context (for example the daily brief). Treat this as the evidence set: do not re-read threads the packet already excerpts, and do not run further searches for lanes whose messages settle the question.
 3. **Fill only genuine gaps.** Only when a specific lane’s status cannot be judged from the packet and context, run one bounded Gmail search or thread read for that lane, then stop. A lane with no returned messages has received no recent mail from its owner or naming the lane; that alone does not change its status. Consult Second Brain only for remaining necessary gaps.
 
