@@ -94,7 +94,7 @@ def mailbox() -> str:
     """The signed-in Gmail address, used in place of the account index in web links.
 
     `/mail/u/0/` opens whichever Google account the browser signed into first, which in a
-    multi-account browser is often not the demo mailbox; `/mail/u/<address>/` is unambiguous."""
+    multi-account browser is often not the demo mailbox; `?authuser=<address>` is unambiguous."""
     if not _MAILBOX:
         try:
             address = service("gmail", "v1").users().getProfile(userId="me").execute().get("emailAddress")
@@ -105,7 +105,13 @@ def mailbox() -> str:
 
 
 def gmail_url(thread_id: str | None) -> str | None:
-    return f"https://mail.google.com/mail/u/{mailbox()}/#all/{thread_id}" if thread_id else None
+    if not thread_id:
+        return None
+    account = mailbox()
+    # authuser= selects the signed-in account by address (or shows the chooser); /u/<address>/
+    # can answer "account temporarily unavailable" in multi-account browsers.
+    selector = f"?authuser={account}" if account != "0" else "u/0/"
+    return f"https://mail.google.com/mail/{selector}#all/{thread_id}"
 
 
 def gmail_get(args: argparse.Namespace) -> None:
