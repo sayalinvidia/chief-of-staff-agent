@@ -112,7 +112,7 @@ Model turns for query 3 went from 9 to 4. Evidence pre-grouped per lane also hal
 
 Two sources of inconsistency (45 s one run, 90 s the next on identical input):
 
-- Unbounded thinking. llama-server now runs with `--reasoning-budget 1024`; bursts that used to run 24–27 s are capped at ~18 s.
+- Unbounded thinking. llama-server now runs with `--reasoning-budget 768`; bursts that used to run 24–27 s are capped at ~18 s.
 - Sampling temperature. Hermes sent none, so the model file's embedded default of 1.0 applied. At 1.0 the model more often ignored the written procedure (re-fetching the skill, running the Drive search it was told to skip) and thought longer. The profile now sends `temperature: 0.6` via `providers.local-qwen.extra_body`, which Hermes merges into every request to that endpoint. Verified at the server.
 
 ### 10. Gmail links that open the right mailbox
@@ -124,7 +124,7 @@ Not a latency fix, but it removed a demo blocker. `/mail/u/0/` opens whichever G
 llama-server launch (model folder `C:\llama.cpp-n1x-b9775`):
 
 ```powershell
-.\llama-server.exe -m .\Qwen3.6-35B-A3B-UD-Q4_K_M.gguf --mmproj .\mmproj-BF16.gguf --alias qwen3.6-35b-a3b --host 127.0.0.1 --port 8080 --ctx-size 65536 --spec-type draft-mtp --spec-draft-n-max 3 -np 1 --jinja --cache-reuse 256 --reasoning-budget 1024
+.\llama-server.exe -m .\Qwen3.6-35B-A3B-UD-Q4_K_M.gguf --mmproj .\mmproj-BF16.gguf --alias qwen3.6-35b-a3b --host 127.0.0.1 --port 8080 --ctx-size 65536 --spec-type draft-mtp --spec-draft-n-max 3 -np 1 --jinja --cache-reuse 256 --reasoning-budget 768
 ```
 
 Hermes refuses any `model.context_length` pin below 64,000, so the server context must be at least 65536.
@@ -169,6 +169,6 @@ Hermes desktop app: Settings → Advanced → **Always open links in external br
 
 ## Remaining levers, not applied
 
-- `--reasoning-budget 768`: caps each thinking burst at ~13 s. Small quality risk now that evidence arrives pre-organised.
+- `--reasoning-budget 512`: caps each thinking burst at ~9 s. Would start to cut into the tracker reconciliation (~530 tokens today).
 - `enable_thinking: false` via `chat_template_kwargs`: roughly 10 s per turn, but removes the model's judgment on the tracker reconciliation and meeting prep.
 - A shorter saved brief: query 1 spends ~13 s just echoing the ~750-token brief.
