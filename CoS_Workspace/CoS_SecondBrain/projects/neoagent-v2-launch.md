@@ -1,14 +1,22 @@
+---
+title: NeoAgent V2 Launch
+created: 2026-09-09
+updated: 2026-09-22
+type: project
+tags: [project, neoagent-v2, launch, strategy]
+sources: [raw/meetings/leadership-staff-2026-09-08.md, raw/updates/performance-results-package.md]
+status: at-risk
+confidence: high
+---
+
 # NeoAgent V2 Launch
 
 This project brings together the presentation, product evidence, partner demos, retail preparation, and campaign materials for the NeoAgent V2 launch. The immediate goal is to help leadership choose the keynote story and the demos to show at GTC.
 
 ## Where things stand
-The recorded performance results are approved for leadership review with the NeoAgent V1 baseline and evaluation scope intact. Daniel Cho cleared the comparison wording for leadership review on Oct 1. The executive presentation and marketing materials still need updates. The retail demo still needs a confirmed owner, and the marketing shoot needs a replacement date.
+The recorded performance results are approved for leadership review with the NeoAgent V1 baseline and evaluation scope intact. The executive presentation and marketing materials still need updates. The retail demo still needs a confirmed owner, and the marketing shoot needs a replacement date.
 
 Approved evidence is ready to use, but the slides still need editing and proposed demo owners still need to accept their assignments.
-
-## Meeting update
-The [[neoagent-v2-executive-review|NeoAgent V2 Exec Review]] moved to **5:00 PM today (Oct 1)**. This is a decision meeting, not a working session. Two outcomes needed: approval of the agent-first keynote storyline, and alignment on the GTC demo slate and owners.
 
 ## Who is involved
 - [[elena-park]] coordinates the [[neoagent-v2-executive-review]].
@@ -50,9 +58,9 @@ For a draft, check the recipient, conversation, and saved result. For a tracker,
 ### Local processing and connected work
 The model can run locally while the harness connects to Google Workspace. Reading Gmail and saving a Google draft still use Google's services. Local model processing does not make the workflow fully offline. Describe where information is retrieved, processed, and written before making a privacy claim.
 
-The proposed retail example uses a laptop running the model locally while connecting to workspace data.
+The proposed retail example uses a local product catalog. The assistant compares laptops and drafts a customer follow-up, the associate reviews the draft, and customer details stay on the device in this proposed workflow. This is an illustrative use case, not customer validation or an approved GTC demo.
 
-## Update history
-| Date | Updates |
-|---|---|
-| 2026-10-01 | Added meeting time change: exec review moved to 5 PM today. Added Daniel Cho's legal clearance for performance results. |
+### Open questions
+Which workflows best explain the harness? What must the user still decide? Which candidate demos are ready for a live run, who will own them, and what is the fallback if a dependency fails? Compare candidates by audience value, setup requirements, reliability, and distinct purpose.
+
+The [[agent-security-prd|Agent Security PRD]] and [[openshell|OpenShell]] hold related permission and control questions. The [[gtc-demo-slate|demo slate]] remains a leadership decision. These learning notes do not add new commitments or close pending work.

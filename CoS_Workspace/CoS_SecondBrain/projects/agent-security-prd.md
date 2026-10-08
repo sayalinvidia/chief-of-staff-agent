@@ -1,3 +1,14 @@
+---
+title: Agent Security PRD
+created: 2026-09-09
+updated: 2026-09-22
+type: project
+tags: [project, agent-security, engineering, priority]
+sources: [raw/updates/agent-security-engineering-request.md]
+status: active
+confidence: high
+---
+
 # Agent Security PRD
 
 The product requirements document defines what the system must protect, what it may do, and what happens when a security check fails. [[marcus-lee]] leads the engineering work. I need to review the open requirements, decide the fallback policies and audit requirements, and update and finalize the document.
@@ -23,11 +34,3 @@ These are test cases to specify, not tests already passed.
 Prepare a data-flow sketch, list of trust boundaries, decision table, audit-event examples, and open choices. Show which controls belong in the runtime and which depend on identity or infrastructure services.
 
 A reviewer should be able to follow a request from identity through the permission check to execution and reporting. Use a protected focus block under the [[executive-attention-model|attention plan]] to review, update, and finalize the document, resolving the open security-policy decisions. More optional review meetings should not crowd out that work.
-
-## Campaign plan
-The [[hermes-partner-program|Hermes partner program]] campaign plan document covers related messaging: https://docs.google.com/document/d/1vU9BLiKFsjpW7nJctqyVK52rCJxxkcWbp9X02NhDyPc/edit?usp=drivesdk
-
-## Update history
-| Date | Updates |
-|---|---|
-| 2026-10-01 | Added campaign plan link. Elena Park requested finalization today with a focused review hour. |
