@@ -19,6 +19,7 @@ Pass these service commands and arguments to `run-actions.sh`, which runs the bu
 | `docs append DOCUMENT_ID --text 'TEXT' --confirm` | Append text to a document. | None |
 | `docs replace-text DOCUMENT_ID --find 'OLD' --replace 'NEW' --confirm` | Replace matching document text. | Case-insensitive unless `--match-case`. |
 | `sheets get SPREADSHEET_ID [RANGE]` | Read cell values; tracker tables return labeled lane records. | `RANGE` defaults to `A1:J80` |
+| `sheets tracker-evidence SPREADSHEET_ID_OR_TITLE --sheet 'TAB_NAME'` | Read tracker lanes and the recent mail relevant to each lane in one call (the evidence set for tracker updates). | `--days 14`, `--per-lane 3`, `--max-messages 16`, `--max-chars 700` |
 | `sheets update SPREADSHEET_ID RANGE --values 'JSON' --confirm` | Write a JSON array of rows to a range. | None |
 | `sheets update-lanes SPREADSHEET_ID --updates-file - --confirm` | Update demo tracker rows by lane name. | `--sheet 'Campaign Lanes'`, `--status-only` (default) or `--include-details`. See Supporting note 1. |
 | `slides get PRESENTATION_ID` | Read slide text and `object_id` values, used as `SLIDE_OBJECT_ID`. | `--max-chars-per-slide 4000` |

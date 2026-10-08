@@ -6,9 +6,9 @@ A tracker update request authorizes evidence-backed changes to the requested tra
 
 Use [Command reference](command-reference.md) for `actions.py` commands and arguments.
 
-1. **Read the tracker.** Use `sheets get` unless its current contents are already in context. Find an unknown tracker ID with `drive search`. Do not search local notes for it. Use returned tab names and a range for another known tab. Identify each requested entry’s deliverable, status, and blocker, plus the tracker’s status definitions.
-2. **Check existing evidence.** Assess each requested entry using current source evidence already in context. Do not search if it is sufficient. Otherwise, identify the missing or outdated information needed to assess progress, completion, or changed blockers.
-3. **Fill required gaps.** Batch independent, bounded Gmail searches by verified sender or short project term. Read threads only as needed and reuse results. If an input’s status remains unknown, try one simpler sender or deliverable search. Search misses do not prove inputs are missing. Consult Second Brain only for remaining necessary gaps.
+1. **Read the tracker and its evidence in one call.** Run `sheets tracker-evidence` once with the spreadsheet ID, URL, or title (it resolves titles itself; do not run `drive search` or `sheets get` first) and `--sheet` for the tab. It returns every lane plus the recent mail from each lane’s owner or naming the lane, with bounded excerpts and links. Identify each requested entry’s deliverable, status, and blocker, plus the tracker’s status definitions. Do not search local notes for the tracker.
+2. **Assess from that packet plus context.** Combine the returned messages with evidence already in context (for example the daily brief). Treat this as the evidence set: do not re-read threads the packet already excerpts, and do not run further searches for lanes whose messages settle the question.
+3. **Fill only genuine gaps.** Only when a specific lane’s status cannot be judged from the packet and context, run one bounded Gmail search or thread read for that lane, then stop. A lane with no returned messages has received no recent mail from its owner or naming the lane; that alone does not change its status. Consult Second Brain only for remaining necessary gaps.
 
 ## 2. Reconcile entries
 

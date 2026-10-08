@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+import unittest.mock
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1041,6 +1042,79 @@ class TrackerBlockerReviewTests(unittest.TestCase):
         data = values.batchUpdate.call_args.kwargs["body"]["data"]
         self.assertEqual(len(data), len(rows))
         self.assertTrue(all(item["values"] == [["On track", None, None, None, None, None]] for item in data))
+
+
+class TrackerEvidenceTests(unittest.TestCase):
+    """`sheets tracker-evidence` reads lanes and batches one Gmail lookup per lane."""
+
+    class FakeBatch:
+        def __init__(self, responses):
+            self.responses = responses
+            self.calls = []
+
+        def add(self, request, callback, request_id):
+            self.calls.append((request, callback, request_id))
+
+        def execute(self):
+            for request, callback, request_id in self.calls:
+                callback(request_id, self.responses(request, request_id), None)
+
+    def test_returns_lanes_with_bounded_mail_per_lane_in_two_batches(self):
+        sheet_values = [
+            ["NeoAgent V2 Campaign Tracker"],
+            ["Lane", "PIC", "Status", "Latest update", "Next action", "Due", "Dependency / blocker", "Evidence"],
+            ["Performance results", "Mike Chen", "Awaiting update", "", "", "", "", ""],
+            ["Agent Messaging", "Workspace Owner", "Awaiting update", "", "", "", "", ""],
+        ]
+        sheets = unittest.mock.Mock()
+        sheets.spreadsheets.return_value.values.return_value.get.return_value.execute.return_value = {"values": sheet_values}
+        gmail = unittest.mock.Mock()
+        batches = []
+
+        def responses(request, request_id):
+            if request.kind == "list":
+                return {"messages": [{"id": "m1"}, {"id": "m2"}]}
+            return {
+                "id": request_id, "threadId": "t-" + request_id, "labelIds": ["INBOX"],
+                "payload": {"mimeType": "text/plain", "headers": [{"name": "Subject", "value": "APPROVED results"}, {"name": "From", "value": "Mike Chen <mike@example.com>"}],
+                            "body": {"data": base64.urlsafe_b64encode(b"Approved: 92% task success.").decode("ascii")}},
+            }
+
+        def new_batch():
+            batch = self.FakeBatch(responses)
+            batches.append(batch)
+            return batch
+        gmail.new_batch_http_request.side_effect = new_batch
+        gmail.users.return_value.messages.return_value.list.side_effect = lambda **kw: unittest.mock.Mock(kind="list", kw=kw)
+        gmail.users.return_value.messages.return_value.get.side_effect = lambda **kw: unittest.mock.Mock(kind="get", kw=kw)
+
+        def fake_service(name, version):
+            return {"sheets": sheets, "gmail": gmail}[name]
+
+        args = argparse.Namespace(spreadsheet="1" * 30, sheet="Campaign Lanes", days=14, per_lane=2, max_messages=16, max_chars=12)
+        with patch.object(actions, "service", side_effect=fake_service), redirect_stdout(io.StringIO()) as out:
+            actions.sheets_tracker_evidence(args)
+        result = json.loads(out.getvalue())
+
+        self.assertEqual(["Performance results", "Agent Messaging"], [lane["lane"] for lane in result["lanes"]])
+        self.assertEqual(2, len(batches), "one batch of lane searches, one batch of message reads")
+        list_kw = batches[0].calls[0][0].kw
+        self.assertIn('from:"Mike Chen"', list_kw["q"])
+        self.assertIn('"Performance results"', list_kw["q"])
+        self.assertIn("newer_than:14d", list_kw["q"])
+        # The unowned lane still searches by lane name; no owner term is added.
+        self.assertNotIn("Workspace Owner", batches[0].calls[1][0].kw["q"])
+        # Messages are read once even when several lanes return the same IDs.
+        self.assertEqual(["m1", "m2"], [call[2] for call in batches[1].calls])
+        first = result["evidence"][0]["messages"][0]
+        self.assertEqual("APPROVED results", first["subject"])
+        self.assertEqual("https://mail.google.com/mail/u/#all/t-m1", first["url"])
+        self.assertEqual("Approved: 92..." , first["excerpt"])
+
+    def test_resolves_spreadsheet_from_url_without_drive(self):
+        with patch.object(actions, "service") as service:
+            self.assertEqual("abc123", actions._resolve_spreadsheet_id("https://docs.google.com/spreadsheets/d/abc123/edit?usp=drivesdk"))
+        service.assert_not_called()
 
 
 if __name__ == "__main__":

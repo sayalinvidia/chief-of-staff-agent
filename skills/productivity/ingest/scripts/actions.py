@@ -400,6 +400,108 @@ def sheets_get(args: argparse.Namespace) -> None:
         print(json.dumps({**metadata, **tracker}, ensure_ascii=False, indent=2))
 
 
+def _looks_like_file_id(value: str) -> bool:
+    return len(value) >= 25 and " " not in value and "/" not in value
+
+
+def _resolve_spreadsheet_id(value: str) -> str:
+    """Accept a spreadsheet ID, a Sheets URL, or a title to search Drive for."""
+    if "/spreadsheets/d/" in value:
+        return value.split("/spreadsheets/d/", 1)[1].split("/", 1)[0]
+    if _looks_like_file_id(value):
+        return value
+    safe = value.replace("'", "\\'")
+    files = service("drive", "v3").files().list(
+        q=f"trashed = false and mimeType = 'application/vnd.google-apps.spreadsheet' and name contains '{safe}'",
+        orderBy="modifiedTime desc", pageSize=3, fields="files(id,name)",
+    ).execute().get("files", [])
+    if not files:
+        raise RuntimeError(f"No spreadsheet named like {value!r}; pass the spreadsheet ID or URL instead")
+    return files[0]["id"]
+
+
+def _lane_query(lane: dict[str, Any], days: int) -> str | None:
+    """One bounded Gmail query per lane: mail from its owner or mentioning the lane by name."""
+    owner = str(lane.get("owner", "")).strip()
+    name = str(lane.get("lane", "")).strip()
+    terms = []
+    if owner and owner.casefold() not in {"unassigned", "workspace owner", "tbd", ""}:
+        terms.append(f'from:"{owner}"')
+    if name:
+        terms.append(f'"{name}"')
+    if not terms:
+        return None
+    return f"newer_than:{days}d (" + " OR ".join(terms) + ")"
+
+
+def sheets_tracker_evidence(args: argparse.Namespace) -> None:
+    """Tracker lanes plus the recent mail relevant to each lane, in one call.
+
+    Replaces the read-tracker / search-per-lane / read-thread round trips the tracker update
+    otherwise needs. Lane queries run in one Gmail batch, message reads in a second; messages
+    are deduplicated and body excerpts are bounded so the packet stays small."""
+    spreadsheet_id = _resolve_spreadsheet_id(args.spreadsheet)
+    values = service("sheets", "v4").spreadsheets().values().get(
+        spreadsheetId=spreadsheet_id, range=f"'{args.sheet}'!A1:J80",
+    ).execute().get("values", [])
+    tracker = tracker_read_view(values)
+    if tracker is None:
+        raise RuntimeError(f"Tab {args.sheet!r} has no Lane/Status header row; use sheets get to inspect it")
+    lanes = tracker["lanes"]
+
+    gmail = service("gmail", "v1")
+    per_lane_refs: dict[int, list[str]] = {}
+    queries: dict[int, str] = {}
+    batch = gmail.new_batch_http_request()
+    for index, lane in enumerate(lanes):
+        query = _lane_query(lane, args.days)
+        if not query:
+            continue
+        queries[index] = query
+
+        def collect(request_id, response, exception, _index=index):
+            if exception is None and isinstance(response, dict):
+                per_lane_refs[_index] = [m["id"] for m in response.get("messages", []) if m.get("id")][: args.per_lane]
+        batch.add(gmail.users().messages().list(userId="me", q=query, maxResults=args.per_lane), callback=collect, request_id=str(index))
+    if queries:
+        batch.execute()
+
+    wanted: list[str] = []
+    for ids in per_lane_refs.values():
+        for message_id in ids:
+            if message_id not in wanted:
+                wanted.append(message_id)
+    wanted = wanted[: args.max_messages]
+    messages: dict[str, dict[str, Any]] = {}
+    if wanted:
+        batch = gmail.new_batch_http_request()
+
+        def receive(request_id, response, exception):
+            if exception is None and isinstance(response, dict):
+                hdr = headers(response.get("payload", {}))
+                body = decode_body(response.get("payload", {})).strip()
+                messages[response.get("id", request_id)] = {
+                    "id": response.get("id"), "thread_id": response.get("threadId"),
+                    "url": gmail_url(response.get("threadId")),
+                    "from": hdr.get("from", ""), "subject": hdr.get("subject", ""), "date": hdr.get("date", ""),
+                    "labels": response.get("labelIds", []),
+                    "excerpt": body[: args.max_chars] + ("..." if len(body) > args.max_chars else ""),
+                }
+        for message_id in wanted:
+            batch.add(gmail.users().messages().get(userId="me", id=message_id, format="full"), callback=receive, request_id=message_id)
+        batch.execute()
+
+    evidence = []
+    for index, lane in enumerate(lanes):
+        found = [messages[m] for m in per_lane_refs.get(index, []) if m in messages]
+        evidence.append({"lane": lane.get("lane", ""), "query": queries.get(index), "messages": found})
+    print(json.dumps({
+        "spreadsheet_id": spreadsheet_id, "sheet": args.sheet, "context": tracker["context"], "lanes": lanes,
+        "evidence": evidence, "newer_than_days": args.days,
+        "note": "Evidence is bounded recent mail per lane; a lane with no messages has no new mail from its owner or naming the lane in this window.",
+    }, ensure_ascii=False, indent=2))
+
+
 def sheets_update(args: argparse.Namespace) -> None:
     require_confirm(args, "Sheets update")
     values = json.loads(args.values)
@@ -643,6 +745,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("spreadsheet_id")
     p.add_argument("range", nargs="?", default="A1:J80")
     p.set_defaults(func=sheets_get)
+    p = sheets.add_parser("tracker-evidence", help="Tracker lanes plus recent mail relevant to each lane, in one call")
+    p.add_argument("spreadsheet", help="Spreadsheet ID, Sheets URL, or title to search for")
+    p.add_argument("--sheet", default="Campaign Lanes")
+    p.add_argument("--days", type=int, default=14, help="Only mail newer than this many days (default 14)")
+    p.add_argument("--per-lane", dest="per_lane", type=int, default=3, help="Messages per lane (default 3)")
+    p.add_argument("--max-messages", dest="max_messages", type=int, default=16, help="Total messages read (default 16)")
+    p.add_argument("--max-chars", dest="max_chars", type=int, default=700, help="Body excerpt per message (default 700)")
+    p.set_defaults(func=sheets_tracker_evidence)
     p = sheets.add_parser("update")
     p.add_argument("spreadsheet_id")
     p.add_argument("range")
