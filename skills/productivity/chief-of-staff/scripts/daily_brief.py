@@ -90,7 +90,7 @@ def _brief_is_current(text: str) -> bool:
     except (OSError, ValueError):
         return True
     known = {item.get(key) for item in state.get("emails", []) for key in ("id", "thread_id")}
-    return all(link in known for link in re.findall(r"mail\.google\.com/mail/(?:u/[^/]+/|\?authuser=[^#]+)#all/([0-9a-f]+)", text))
+    return all(link in known for link in re.findall(r"mail\.google\.com/mail/(?:u/[^/]*/|\?authuser=[^#]+)#all/([0-9a-f]+)", text))
 
 
 def saved_brief(today: date | None = None) -> Path | None:

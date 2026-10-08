@@ -124,14 +124,14 @@ class GmailUrlTests(unittest.TestCase):
                                   newer_than_days=90, max_chars=4)
         with patch.object(actions, "service", return_value=api) as service, patch.object(actions, "emit") as emit:
             getattr(actions, "gmail_" + operation)(args)
-        service.assert_called_with("gmail", "v1")  # one extra call resolves the mailbox for links
+        service.assert_called_once_with("gmail", "v1")
         emit.assert_called_once()
         result = emit.call_args.args[0]
         result = result if operation == "get" else result["matches" if operation == "search" else "messages"][0]
         self.assertEqual("actual-message", result["id"])
         self.assertEqual(thread_id, result["thread_id"])
         self.assertEqual("Project update", result["subject"])
-        self.assertEqual(f"https://mail.google.com/mail/u/0/#all/{thread_id}" if thread_id else None, result["url"])
+        self.assertEqual(f"https://mail.google.com/mail/u/#all/{thread_id}" if thread_id else None, result["url"])
         get_args = {"userId": "me", "id": "requested-message", "format": "full"}
         if operation == "search":
             get_args.update(format="metadata", metadataHeaders=["From", "To", "Cc", "Reply-To", "Subject", "Date"])
@@ -185,7 +185,7 @@ class GmailUrlTests(unittest.TestCase):
                 emit.assert_called_once()
                 result = emit.call_args.args[0]
                 self.assertEqual(requested_id, result["thread_id"])
-                self.assertEqual(f"https://mail.google.com/mail/u/0/#all/{expected_id}" if expected_id else None, result["url"])
+                self.assertEqual(f"https://mail.google.com/mail/u/#all/{expected_id}" if expected_id else None, result["url"])
                 self.assertEqual(["message-2"], [message["id"] for message in result["messages"]])
                 self.assertEqual([unittest.mock.call.get(userId="me", id=requested_id, format="full"),
                                   unittest.mock.call.get().execute()], threads.mock_calls)

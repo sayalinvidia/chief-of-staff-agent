@@ -500,7 +500,7 @@ def create_emails(gmail, deck_url: str, sheet_url: str, doc_url: str, resources:
     ]
     results = execute_batched(gmail, requests, batch_size=GMAIL_IMPORT_BATCH_SIZE, workers=GMAIL_IMPORT_WORKERS)
     created = [
-        {"id": result["id"], "thread_id": result.get("threadId", result["id"]), "url": f"https://mail.google.com/mail/?authuser={account}#all/{result.get('threadId', result['id'])}"}
+        {"id": result["id"], "thread_id": result.get("threadId", result["id"]), "url": f"https://mail.google.com/mail/u/#all/{result.get('threadId', result['id'])}"}
         for result in results
     ]
     evidence = {"elena": created[0]["url"], "mike": created[1]["url"], "aisha": created[2]["url"], "daniel": created[3]["url"], "priya": created[4]["url"], "prd": created[5]["url"]}
@@ -858,10 +858,8 @@ def relink_saved_briefs(previous_emails: list[dict], emails: list[dict], today: 
         text = original = path.read_text(encoding="utf-8")
         for old_id, new_id in mapping.items():
             text = text.replace(old_id, new_id)
-        # Older briefs link /mail/u/0/ or /mail/u/<address>/; point them at the demo mailbox like new links do.
-        mailbox = re.search(r"mail\.google\.com/mail/\?authuser=([^#]+)#", emails[0].get("url", "")) if emails else None
-        if mailbox:
-            text = re.sub(r"mail\.google\.com/mail/u/[^/]+/#", f"mail.google.com/mail/?authuser={mailbox.group(1)}#", text)
+        # Normalise older link forms (/u/0/, /u/<address>/, ?authuser=) to the one that keeps the thread fragment.
+        text = re.sub(r"mail\.google\.com/mail/(?:u/[^/]+/|\?authuser=[^#]+)#", "mail.google.com/mail/u/#", text)
         if text != original:
             path.write_text(text, encoding="utf-8", newline="\n")
             relinked += 1
