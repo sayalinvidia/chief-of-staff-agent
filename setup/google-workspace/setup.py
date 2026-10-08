@@ -82,7 +82,7 @@ REQUIRED_PACKAGES = [
     "httplib2==0.32.0",
     "pyasn1==0.6.4",
     # Local Google Docs preview rendering for the demo action helper.
-    "PyMuPDF==1.28.0",
+    "PyMuPDF==1.28.2",
 ]
 
 # OAuth redirect for "out of band" manual code copy flow.

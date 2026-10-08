@@ -1,8 +1,9 @@
-"""Clear previous-run artifacts from the demo workspace, preserving required state."""
+"""Clear run artifacts, preserving required state and the latest dated daily brief."""
 from __future__ import annotations
 
 import shutil
 import stat
+from datetime import date
 from pathlib import Path
 
 
@@ -32,10 +33,25 @@ def check_evidence_cache(root: Path) -> tuple[list[Path], list[Path], int]:
     workspace = root.resolve() / "CoS_Workspace"
     vault = workspace / "CoS_SecondBrain"
     state = workspace / ".chief-of-staff-state"
-    for path in (workspace, vault, state):
+    briefs = workspace / "DailyBriefs"
+    for path in (workspace, vault, state, briefs):
         _check_path(path, workspace)
         if path.exists() and not path.is_dir():
             raise RuntimeError(f"Expected a workspace directory: {path}")
+
+    # Filenames carry the brief date; copying or touching an older file must not
+    # make it replace the newest brief. Validate even the file being preserved.
+    latest_brief = None
+    if briefs.exists():
+        for path in sorted(briefs.iterdir()):
+            _check_path(path, workspace)
+            if path.is_file() and path.suffix.lower() == ".md":
+                try:
+                    brief_date = date.fromisoformat(path.stem)
+                except ValueError:
+                    continue
+                if brief_date.isoformat() == path.stem:
+                    latest_brief = path
 
     directories, standalone = [], []
     file_count = 0
@@ -63,7 +79,11 @@ def check_evidence_cache(root: Path) -> tuple[list[Path], list[Path], int]:
 
     if workspace.exists():
         for path in sorted(workspace.iterdir()):
-            if path not in (vault, state):
+            if path == briefs and latest_brief is not None:
+                for child in sorted(briefs.iterdir()):
+                    if child != latest_brief:
+                        collect(child)
+            elif path not in (vault, state):
                 collect(path)
     if state.exists():
         for path in sorted(state.iterdir()):

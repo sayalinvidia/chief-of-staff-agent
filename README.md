@@ -10,6 +10,7 @@ A portable Hermes Agent configuration for a lightweight Google Workspace chief o
 - `setup/google-workspace/` contains the portable OAuth helper.
 - `config.example.yaml` documents the minimal recommended tool surface.
 - [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) contains the presentation script and staged demo flow.
+- [`DEBUGGING.md`](DEBUGGING.md) records setup problems found on the RTX Spark demo machine, with root causes and fixes.
 
 No sessions, OAuth credentials, email/calendar fixtures, account IDs, document IDs, or model files are included.
 
@@ -199,6 +200,30 @@ covers context, work needed before the meeting, and the meeting's intended goals
 Use [Google Tasks](https://tasks.google.com/) to check off the seeded tasks. Chat
 lists in this Hermes Desktop version do not save checkbox progress or sync it to
 Google Tasks.
+
+## Scheduled daily brief (optional)
+
+A Hermes cron job in the **chief-of-staff** profile can generate the morning brief
+before you open a chat, so the first Start of Day request returns a saved brief
+instead of collecting evidence and generating live. This mirrors the saved-brief
+convention of the Perplexity demo branch.
+
+Create the job once from the profile:
+
+```bash
+hermes -p chief-of-staff cron create "0 7 * * 1-5" --name "Morning daily brief" --skill chief-of-staff --deliver local "Good morning chief of staff, what should we work on today? This is the scheduled morning run that produces today's saved brief. Run the Start of Day command with the extra argument --fresh so evidence is collected now, then reply with only the brief in the skill's three-section format, starting with the **What You Need to Know** heading. No preamble, no closing question."
+```
+
+The job name must stay `Morning daily brief`; `daily_brief.py` looks for that job's
+output under the profile's `cron/output/` folder. On the first interactive Start of
+Day of the day it copies the response to `CoS_Workspace/DailyBriefs/YYYY-MM-DD.md`
+and prints it with a `saved_brief` marker, and the skill returns it unchanged. Pass
+`--fresh` to force live collection. Delete the dated file to regenerate.
+
+Hermes runs the schedule only while Hermes Desktop or the profile gateway is open.
+To produce today's brief on demand, run `hermes -p chief-of-staff cron run <job id>`
+and wait for the next scheduler tick. Workspace reset keeps the newest dated brief
+and clears older ones. The `DailyBriefs/` folder is ignored by git.
 
 ## Scheduled project tracking (optional)
 

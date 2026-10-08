@@ -38,3 +38,6 @@ Thumbs.db
 # Active Desktop demo workspace UI settings and reset staging
 /CoS_Workspace/CoS_SecondBrain/.obsidian/
 /CoS_Workspace/.second-brain-reset-*/
+
+# Saved daily briefs produced by the scheduled job (per-machine artifacts)
+/CoS_Workspace/DailyBriefs/

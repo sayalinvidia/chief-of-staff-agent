@@ -74,6 +74,42 @@ class EvidenceCacheTests(unittest.TestCase):
                          {"folders_removed": 0, "files_removed": 0})
         self.assertFalse(absent.exists())
 
+    def test_preserves_newest_dated_brief_unchanged_not_most_recently_modified(self):
+        briefs = self.workspace / "DailyBriefs"
+        older = self.write(briefs / "2026-10-05.md", "older brief")
+        newest = self.write(briefs / "2026-10-06.md", "# What You Need to Know\n\nToday's brief\n")
+        os.utime(newest, (100, 100))
+        os.utime(older, (200, 200))
+        before = newest.read_bytes(), newest.stat().st_mtime_ns
+        artifacts = [older, self.write(briefs / "draft.md"),
+                     self.write(briefs / "2026-99-99.md"),
+                     self.write(briefs / "scratch/2026-10-07.md"),
+                     self.write(self.workspace / "tracker_updates.json"),
+                     self.write(self.state / "snapshot.json")]
+        files_before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        check_evidence_cache(self.root)
+        self.assertEqual(files_before, {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
+
+        result = clear_evidence_cache(self.root)
+
+        self.assertEqual(result["files_removed"], len(artifacts))
+        self.assertTrue(all(not path.exists() for path in artifacts))
+        self.assertEqual(list(briefs.iterdir()), [newest])
+        self.assertEqual((newest.read_bytes(), newest.stat().st_mtime_ns), before)
+        self.assertEqual(clear_evidence_cache(self.root), {"folders_removed": 0, "files_removed": 0})
+
+    def test_preserves_latest_brief_even_when_it_is_not_from_today(self):
+        brief = self.write(self.workspace / "DailyBriefs/2020-01-01.md", "last saved brief")
+        clear_evidence_cache(self.root)
+        self.assertEqual(brief.read_text(encoding="utf-8"), "last saved brief")
+
+    def test_cleans_daily_briefs_folder_without_a_valid_dated_markdown_file(self):
+        briefs = self.workspace / "DailyBriefs"
+        for name in ("draft.md", "2026-02-30.md", "2026-10-06.json"):
+            self.write(briefs / name)
+        self.assertEqual(clear_evidence_cache(self.root), {"folders_removed": 1, "files_removed": 3})
+        self.assertFalse(briefs.exists())
+
     def test_wrong_type_for_preserved_state_aborts_before_any_deletion(self):
         artifact = self.write(self.workspace / "tracker_updates.json")
         (self.state / "google_token.json").mkdir()
@@ -109,6 +145,16 @@ class EvidenceCacheTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "linked path"):
             clear_evidence_cache(self.root)
         self.assertEqual(evidence.read_text(), "do not delete")
+
+    def test_refuses_linked_daily_briefs_folder_before_deleting_anything(self):
+        artifact = self.write(self.workspace / "tracker_updates.json")
+        outside = self.root / "another-workspace"
+        brief = self.write(outside / "2026-10-06.md", "do not delete")
+        self.link_directory(self.workspace / "DailyBriefs", outside)
+        with self.assertRaisesRegex(RuntimeError, "linked path"):
+            clear_evidence_cache(self.root)
+        self.assertTrue(artifact.exists())
+        self.assertEqual(brief.read_text(), "do not delete")
 
     def test_nested_link_aborts_before_deleting_any_cache(self):
         first = self.write(self.state / "chief-of-staff" / ("daily-brief-" + "1" * 32) / "packet.json")
