@@ -72,11 +72,16 @@ def _cron_output_for_today(today: date) -> Path | None:
 
 
 def _response_section(report: str) -> str:
-    """Hermes saves each run as a report (header, prompt, then ``## Response``). Keep the response."""
+    """Hermes saves each run as a report (header, prompt, then ``## Response``). Keep the response.
+
+    A failed run has no Response section (its header says ``(FAILED)`` and the body is the prompt
+    plus the error). The prompt contains the brief heading, so without this guard a failed report
+    would be published as the day's brief."""
     marker = "\n## Response\n"
     index = report.rfind(marker)
-    body = report[index + len(marker):] if index >= 0 else report
-    return body.strip()
+    if index < 0 or "(FAILED)" in report[:200]:
+        return ""
+    return report[index + len(marker):].strip()
 
 
 def _brief_is_current(text: str) -> bool:

@@ -111,3 +111,16 @@ class DailyBriefTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FailedCronReportTests(unittest.TestCase):
+    def test_failed_cron_report_is_not_a_saved_brief(self):
+        report = '# Cron Job: Morning daily brief (FAILED)' + chr(10)*2 + '## Prompt' + chr(10)*2 + '#### What You Need to Know' + chr(10)*2 + 'RuntimeError: Connection error.' + chr(10)
+        self.assertEqual('', daily_brief._response_section(report))
+
+    def test_report_without_response_section_is_ignored(self):
+        self.assertEqual('', daily_brief._response_section('# Cron Job: x' + chr(10)*2 + '## Prompt' + chr(10)*2 + '**What You Need to Know**' + chr(10)))
+
+    def test_successful_report_keeps_only_the_response(self):
+        report = '# Cron Job: x' + chr(10)*2 + '## Prompt' + chr(10)*2 + 'stuff' + chr(10)*2 + '## Response' + chr(10)*2 + '**What You Need to Know**' + chr(10)*2 + 'body' + chr(10)
+        self.assertEqual('**What You Need to Know**' + chr(10)*2 + 'body', daily_brief._response_section(report))
