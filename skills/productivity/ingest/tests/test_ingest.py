@@ -1091,7 +1091,7 @@ class TrackerEvidenceTests(unittest.TestCase):
         def fake_service(name, version):
             return {"sheets": sheets, "gmail": gmail}[name]
 
-        args = argparse.Namespace(spreadsheet="1" * 30, sheet="Campaign Lanes", days=14, per_lane=2, max_messages=16, max_chars=12)
+        args = argparse.Namespace(spreadsheet="1" * 30, sheet="Campaign Lanes", days=14, per_lane=2, max_messages=16, max_chars=12, live=True)
         with patch.object(actions, "service", side_effect=fake_service), redirect_stdout(io.StringIO()) as out:
             actions.sheets_tracker_evidence(args)
         result = json.loads(out.getvalue())
@@ -1115,6 +1115,93 @@ class TrackerEvidenceTests(unittest.TestCase):
         with patch.object(actions, "service") as service:
             self.assertEqual("abc123", actions._resolve_spreadsheet_id("https://docs.google.com/spreadsheets/d/abc123/edit?usp=drivesdk"))
         service.assert_not_called()
+
+
+class MirrorTrackerEvidenceTests(unittest.TestCase):
+    """`sheets tracker-evidence` serves from the Second Brain workspace mirror while it is fresh."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name)
+        self.state = self.home / "chief-of-staff" / "workspace-mirror.json"
+        self.state.parent.mkdir(parents=True)
+        env = patch.dict("os.environ", {"HERMES_HOME": str(self.home)})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def write_snapshot(self, generated_at):
+        import time
+        now_ms = int(time.time() * 1000)
+        self.state.write_text(json.dumps({
+            "generated_at": generated_at,
+            "messages": [
+                {"id": "m1", "thread_id": "t1", "from": "Mike Chen <mike@example.com>", "subject": "APPROVED results", "date": "d1",
+                 "labels": ["INBOX"], "internal_ms": now_ms, "snippet": "short", "excerpt": "Approved: 92% task success."},
+                {"id": "m2", "thread_id": "t2", "from": "Someone <s@example.com>", "subject": "Agent Messaging draft", "date": "d2",
+                 "labels": [], "internal_ms": now_ms - 1000, "excerpt": "Draft attached."},
+                {"id": "m3", "thread_id": "t3", "from": "Old <o@example.com>", "subject": "Agent Messaging ancient", "date": "d3",
+                 "labels": [], "internal_ms": now_ms - 40 * 86400 * 1000, "excerpt": "Too old."},
+            ],
+            "trackers": [{
+                "id": "1" * 30, "name": "NeoAgent V2 Campaign Tracker", "url": "https://docs.google.com/spreadsheets/d/" + "1" * 30,
+                "sheet": "Campaign Lanes", "context": ["NeoAgent V2 Campaign Tracker", "Status definitions: On track ..."],
+                "rows": [
+                    {"row": 7, "lane": "Performance results", "pic": "Mike Chen", "status": "Awaiting update", "latest": "", "next": "", "due": "", "blocker": "", "evidence": ""},
+                    {"row": 8, "lane": "Agent Messaging", "pic": "Workspace Owner", "status": "Awaiting update", "latest": "", "next": "", "due": "", "blocker": "", "evidence": ""},
+                ]}],
+        }), encoding="utf-8")
+
+    @staticmethod
+    def now_stamp():
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def run_command(self, *extra):
+        args = actions.build_parser().parse_args(["sheets", "tracker-evidence", "NeoAgent V2", "--max-chars", "12", *extra])
+        out = io.StringIO()
+        with redirect_stdout(out):
+            actions.sheets_tracker_evidence(args)
+        return json.loads(out.getvalue())
+
+    def test_fresh_snapshot_serves_lanes_and_matching_mail_without_google(self):
+        self.write_snapshot(self.now_stamp())
+        with patch.object(actions, "service", side_effect=AssertionError("Google must not be called")):
+            result = self.run_command()
+        self.assertEqual("second-brain-mirror", result["source"])
+        self.assertEqual("1" * 30, result["spreadsheet_id"])
+        self.assertEqual(["Performance results", "Agent Messaging"], [lane["lane"] for lane in result["lanes"]])
+        self.assertEqual("Mike Chen", result["lanes"][0]["owner"])
+        self.assertIn("Status definitions", result["context"][1])
+        by_lane = {item["lane"]: item for item in result["evidence"]}
+        performance = by_lane["Performance results"]["messages"]
+        self.assertEqual(["m1"], [m["id"] for m in performance])
+        self.assertEqual("Approved: 92...", performance[0]["excerpt"])
+        self.assertEqual("https://mail.google.com/mail/u/#all/t1", performance[0]["url"])
+        # Lane-name match inside the window; the placeholder owner is ignored and old mail is excluded.
+        self.assertEqual(["m2"], [m["id"] for m in by_lane["Agent Messaging"]["messages"]])
+        self.assertIn('"Agent Messaging"', by_lane["Agent Messaging"]["query"])
+        self.assertLess(result["snapshot_age_minutes"], 5)
+
+    def test_stale_or_missing_snapshot_falls_back_to_google(self):
+        self.write_snapshot("2026-01-01T00:00:00Z")
+        with patch.object(actions, "_resolve_spreadsheet_id", side_effect=RuntimeError("live path")) as live:
+            with self.assertRaises(RuntimeError):
+                self.run_command()
+        live.assert_called_once()
+        self.state.unlink()
+        with patch.object(actions, "_resolve_spreadsheet_id", side_effect=RuntimeError("live path")) as live:
+            with self.assertRaises(RuntimeError):
+                self.run_command()
+        live.assert_called_once()
+
+    def test_live_flag_and_unknown_tracker_skip_the_mirror(self):
+        self.write_snapshot(self.now_stamp())
+        with patch.object(actions, "_resolve_spreadsheet_id", side_effect=RuntimeError("live path")):
+            with self.assertRaises(RuntimeError):
+                self.run_command("--live")
+        args = actions.build_parser().parse_args(["sheets", "tracker-evidence", "Some Other Tracker"])
+        self.assertIsNone(actions._mirror_tracker_evidence(args))
 
 
 if __name__ == "__main__":

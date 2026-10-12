@@ -164,8 +164,18 @@ Hermes desktop app: Settings → Advanced → **Always open links in external br
    & "$env:LOCALAPPDATA\hermes\hermes-agent\.hermes\bin\hermes.exe" --profile chief-of-staff config get providers.local-qwen.extra_body.temperature
    ```
 3. Hermes desktop app open before 07:00 on the demo day so the cron brief exists; otherwise query 1 takes the slow path (or trigger it: `hermes --profile chief-of-staff cron run e85eb52a0773`).
-4. `python demo\reset_workspace.py` from the repo root (~40 s).
+4. `python demo\reset_workspace.py` from the repo root (~40 s). Add `--keep-emails` to skip the Gmail delete and re-import when the previous run did not touch the inbox; the drafts from query 4 are still cleared.
 5. Start a **new chat** after the reset.
+
+## Query 3 evidence from the Second Brain mirror (2026-10-12)
+
+`sheets tracker-evidence` now answers from the workspace mirror's persisted ingest snapshot
+(`chief-of-staff/workspace-mirror.json` in the profile) when it is under 180 minutes old, instead of
+one Sheets read plus two Gmail batches. The snapshot is refreshed by the `Workspace mirror` job every
+30 minutes, by the new `Second Brain daily refresh` job at 06:45 on weekdays, and at the end of every
+reset, so the IDs always match the seed. The packet shape is unchanged; a `source` field says
+`second-brain-mirror` or `google-live`. `--live` forces Google. The tool call drops from roughly 5 to
+8 s to under 1 s; model time, which dominates query 3, is unchanged.
 
 ## Remaining levers, not applied
 

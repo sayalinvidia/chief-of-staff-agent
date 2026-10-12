@@ -6,11 +6,13 @@ Drive, Sheets, Tasks); each source note links to one note per item; item notes l
 where a name matches, to the vault's existing people, meeting, and project pages. The result is a
 graph you can watch in Obsidian while the demo runs.
 
-The folder is machine-owned: every run deletes and rewrites `workspace/`. The agent's skills do not
-read these notes; they keep using live Google evidence. Run on a schedule (Hermes cron, no agent)
-and at the end of a workspace reset so IDs are always current.
+The folder is machine-owned: every run deletes and rewrites `workspace/`. Each run also persists the
+ingest snapshot it was built from (`<HERMES_HOME>/chief-of-staff/workspace-mirror.json`); the
+`sheets tracker-evidence` command answers from that local snapshot while it is fresh instead of
+calling Gmail and Sheets, which is what makes the tracker update fast. Run on a schedule (Hermes
+cron, no agent) and at the end of a workspace reset so IDs are always current.
 
-Usage: workspace_mirror.py [--snapshot PATH] [--vault PATH] [--keep-snapshot]
+Usage: workspace_mirror.py [--snapshot PATH] [--vault PATH] [--state PATH] [--keep-snapshot]
   Without --snapshot the bundled ingest runs first (same bounded pull the daily brief uses).
 """
 from __future__ import annotations
@@ -29,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from brief import hermes_home  # noqa: E402
 
 MIRROR_DIR = "workspace"
+MIRROR_STATE = "workspace-mirror.json"  # under <HERMES_HOME>/chief-of-staff/; read by `sheets tracker-evidence`
 GMAIL_URL = "https://mail.google.com/mail/u/#all/{thread}"
 SOURCES = (
     ("gmail", "Gmail", "messages"),
@@ -141,8 +144,9 @@ def write_mail(out: Path, items: list[dict], today: str, people: dict, projects:
         body += f"- **Date:** {message.get('date', '')}\n"
         body += f"- **Flags:** {', '.join(tags) or 'read'}\n"
         body += f"- **Open:** [Gmail thread]({url})\n\n"
-        if message.get("snippet"):
-            body += f"> {message['snippet'].strip()}\n\n"
+        text = (message.get("excerpt") or message.get("snippet") or "").strip()
+        if text:
+            body += f"> {text}\n\n"
         if linked_projects:
             body += f"Related: {wikilinks(linked_projects)}\n\n"
         body += "Source: [[Gmail]] · [[Google Workspace]]\n"
@@ -347,10 +351,24 @@ def build(snapshot: dict, vault: Path) -> dict:
     return counts
 
 
+def default_state_path() -> Path:
+    return hermes_home() / "chief-of-staff" / MIRROR_STATE
+
+
+def save_snapshot(snapshot: dict, path: Path) -> Path:
+    """Persist the snapshot the mirror was built from, atomically, for local evidence lookups."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_suffix(".tmp")
+    partial.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+    partial.replace(path)
+    return path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--snapshot", type=Path, help="Use an existing ingest snapshot instead of running ingest")
     parser.add_argument("--vault", type=Path, help="Vault folder (default: from second-brain.json in HERMES_HOME)")
+    parser.add_argument("--state", type=Path, help=f"Where to persist the snapshot (default: <HERMES_HOME>/chief-of-staff/{MIRROR_STATE})")
     parser.add_argument("--keep-snapshot", action="store_true", help="Leave the temporary snapshot on disk")
     args = parser.parse_args()
     vault = args.vault or vault_path()
@@ -369,6 +387,7 @@ def main() -> int:
                            check=True, capture_output=True, encoding="utf-8")
         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
         counts = build(snapshot, vault)
+        counts["snapshot"] = str(save_snapshot(snapshot, args.state or default_state_path()))
         print(json.dumps({"ok": True, **counts}, ensure_ascii=False))
         return 0
     except subprocess.CalledProcessError as exc:

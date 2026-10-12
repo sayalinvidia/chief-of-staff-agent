@@ -228,6 +228,9 @@ def fetch_mail(gmail_service: Any, days_back: int, max_messages: int, query: str
         text = decode_body(msg.get("payload", {})) or msg.get("snippet", "")
         snippet = redact_sensitive(re.sub(r"\s+", " ", text).strip())
         preview = snippet if len(snippet) <= 500 else snippet[:499].rsplit(" ", 1)[0] + "…"
+        # A longer bounded excerpt lets the Second Brain mirror answer tracker-evidence
+        # questions locally; the brief packet keeps using the short preview.
+        excerpt = snippet if len(snippet) <= 700 else snippet[:699].rsplit(" ", 1)[0] + "…"
         messages.append(
             {
                 "id": msg.get("id"),
@@ -242,6 +245,7 @@ def fetch_mail(gmail_service: Any, days_back: int, max_messages: int, query: str
                 "important": "IMPORTANT" in msg.get("labelIds", []),
                 "labels": msg.get("labelIds", []),
                 "snippet": preview,
+                "excerpt": excerpt,
                 "links": _links(snippet),
             }
         )
@@ -323,16 +327,20 @@ def fetch_trackers(credentials: Any, files: list[dict[str, Any]], max_rows: int 
     sheets = build("sheets", "v4", credentials=credentials, cache_discovery=False)
     output: list[dict[str, Any]] = []
     for item in candidates[:2]:
+        # Rows 1-5 hold the tracker's title and status definitions; the lane header is row 6.
         values = sheets.spreadsheets().values().get(
-            spreadsheetId=item["id"], range=f"'Campaign Lanes'!A6:J{6 + max_rows}"
+            spreadsheetId=item["id"], range=f"'Campaign Lanes'!A1:J{6 + max_rows}"
         ).execute().get("values", [])
+        header_index = next((i for i, cells in enumerate(values) if cells and str(cells[0]).strip().casefold() == "lane"), 5)
+        context = [" ".join(str(c).strip() for c in cells if str(c).strip()) for cells in values[:header_index]]
         rows = []
-        for sheet_row, cells in enumerate(values[1:], start=7):
+        for sheet_row, cells in enumerate(values[header_index + 1:], start=header_index + 2):
             padded = list(cells) + [""] * (10 - len(cells))
             if padded[0]:
-                rows.append({"row": sheet_row, "lane": padded[0], "pic": padded[1], "status": padded[2], "latest": padded[3], "next": padded[4], "blocker": padded[6], "evidence": padded[7], "artifact": padded[8]})
+                rows.append({"row": sheet_row, "lane": padded[0], "pic": padded[1], "status": padded[2], "latest": padded[3], "next": padded[4], "due": padded[5], "blocker": padded[6], "evidence": padded[7], "artifact": padded[8]})
         if rows:
-            output.append({"id": item["id"], "name": item["name"], "url": item.get("url", ""), "rows": rows})
+            output.append({"id": item["id"], "name": item["name"], "url": item.get("url", ""), "sheet": "Campaign Lanes",
+                           "context": [c for c in context if c], "rows": rows})
     return output
 
 

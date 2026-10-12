@@ -73,9 +73,18 @@ python demo/seed_workspace.py --week-of 2026-08-17 --confirm
 ```bash
 python demo/reset_workspace.py
 
+# Keep the seeded Gmail messages (skips the mail delete + re-import; drafts are still cleared):
+python demo/reset_workspace.py --keep-emails
+demo\reset_workspace.cmd --keep-emails      # Windows batch wrapper, same flags
+
 # Permanently remove the seeded workspace instead:
 python demo/seed_workspace.py --cleanup --confirm
 ```
+
+`--keep-emails` is for runs where none of the demo workflows touched the inbox: it
+leaves the seeded messages (and their Gmail IDs, so saved briefs still link) in place
+and reuses them as the evidence links for the recreated tasks and tracker rows. Mail
+timestamps are not refreshed, so run a full reset at least once per demo day.
 
 Reset also restores `CoS_Workspace/CoS_SecondBrain/` from the bundled baseline ZIP,
 saving the previous demo vault under `demo/.second-brain-backups/`. It deletes all
@@ -118,3 +127,23 @@ The DOCX source is `build_task_documents.py` (python-docx). The four-slide deck 
 ## Product news scenarios
 
 SuperBox and Autonomous Robot Demo are fictional projects. Morgan Reeves reports a recommended SuperBox hold, with no confirmed readiness date; this does not affect the NeoAgent shoot. Samira Noor confirms that the Autonomous Robot Demo is complete and ready for marketing shoots after its final engineering walkthrough. The robotics team has setup and reset instructions ready, but shoot dates have not been booked. Neither message requests a new user task. Both arrive on the seed morning under the existing timestamp policy. The two messages bring the total seeded email count to 82. Second Brain project and contact notes preserve their scope and ownership. The Financial Analysis project and its resources are unchanged.
+
+## Workspace mirror (Obsidian graph)
+
+`skills/productivity/chief-of-staff/scripts/workspace_mirror.py` writes a machine-owned
+`workspace/` folder into the Second Brain vault: a `Google Workspace` hub note, one note per
+source (`Gmail`, `Calendar`, `Drive`, `Sheets`, `Tasks`), and one note per message, event, file,
+tracker lane, and task. Item notes link back to their source and, when a name matches, to the
+vault's existing people, meeting, and project pages, so Obsidian's graph view shows the live
+workspace attached to the knowledge base. The folder is deleted and rewritten on every run.
+
+It runs on a Hermes cron job (`Workspace mirror`, no agent, every 30 minutes on weekdays) and at
+the end of every reset, so Gmail links always match the current seed. In Obsidian, filter the
+graph with `path:workspace` or `tag:#workspace-mirror` to isolate it.
+
+The notes are for people watching the demo. The agent reads the mirror's persisted snapshot
+(`<HERMES_HOME>/chief-of-staff/workspace-mirror.json`) through `sheets tracker-evidence`, so the
+tracker update (query 3) gathers its evidence from local data when the snapshot is under three
+hours old and falls back to live Gmail and Sheets otherwise. Writes always go to Google. A second
+no-agent cron job, `Second Brain daily refresh` (06:45 weekdays), guarantees a fresh snapshot
+before the morning brief and the demo.

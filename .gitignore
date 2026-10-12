@@ -41,3 +41,6 @@ Thumbs.db
 
 # Saved daily briefs produced by the scheduled job (per-machine artifacts)
 /CoS_Workspace/DailyBriefs/
+
+# Machine-generated Google Workspace mirror (workspace_mirror.py); rebuilt on every run
+CoS_Workspace/CoS_SecondBrain/workspace/

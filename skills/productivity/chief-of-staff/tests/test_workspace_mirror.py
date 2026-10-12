@@ -98,5 +98,35 @@ class WorkspaceMirrorTests(unittest.TestCase):
             self.assertIn(key, head)
 
 
+class SnapshotPersistenceTests(unittest.TestCase):
+    """Each run keeps the ingest snapshot so `sheets tracker-evidence` can answer locally."""
+
+    def test_main_persists_snapshot_to_state_path(self):
+        import contextlib
+        import io
+        import sys
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vault = root / "vault"
+            for folder in ("people", "projects", "meetings"):
+                (vault / folder).mkdir(parents=True)
+            (vault / "index.md").write_text("# Wiki Index\n", encoding="utf-8")
+            snapshot = root / "snapshot.json"
+            snapshot.write_text(json.dumps(SNAPSHOT), encoding="utf-8")
+            state = root / "state" / "workspace-mirror.json"
+            out = io.StringIO()
+            argv = ["workspace_mirror.py", "--snapshot", str(snapshot), "--vault", str(vault), "--state", str(state)]
+            with contextlib.redirect_stdout(out), mock.patch.object(sys, "argv", argv):
+                code = mirror.main()
+            self.assertEqual(0, code)
+            result = json.loads(out.getvalue())
+            self.assertEqual(str(state), result["snapshot"])
+            self.assertEqual(SNAPSHOT["generated_at"], json.loads(state.read_text(encoding="utf-8"))["generated_at"])
+            self.assertFalse(state.with_suffix(".tmp").exists())
+            self.assertTrue((vault / "workspace" / "Google Workspace.md").is_file())
+
+
 if __name__ == "__main__":
     unittest.main()

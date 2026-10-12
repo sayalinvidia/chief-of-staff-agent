@@ -434,12 +434,130 @@ def _lane_query(lane: dict[str, Any], days: int) -> str | None:
     return f"newer_than:{days}d (" + " OR ".join(terms) + ")"
 
 
+def _mirror_snapshot_path() -> Path:
+    """The ingest snapshot the Second Brain workspace mirror last built its notes from."""
+    return hermes_home() / "chief-of-staff" / "workspace-mirror.json"
+
+
+def _snapshot_age_minutes(snapshot: dict[str, Any]) -> float | None:
+    from datetime import datetime, timezone
+
+    stamp = str(snapshot.get("generated_at") or "")
+    try:
+        generated = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if generated.tzinfo is None:
+        generated = generated.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - generated).total_seconds() / 60
+
+
+def _mirror_tracker(snapshot: dict[str, Any], wanted: str, sheet: str) -> dict[str, Any] | None:
+    key = wanted.strip()
+    if "/spreadsheets/d/" in key:
+        key = key.split("/spreadsheets/d/", 1)[1].split("/", 1)[0]
+    for tracker in snapshot.get("trackers", []):
+        if not isinstance(tracker, dict) or not tracker.get("rows"):
+            continue
+        if tracker.get("sheet", "Campaign Lanes") != sheet:
+            continue
+        name = str(tracker.get("name", ""))
+        if key == tracker.get("id") or key.casefold() == name.casefold() or (not _looks_like_file_id(key) and key.casefold() in name.casefold()):
+            return tracker
+    return None
+
+
+def _mirror_tracker_evidence(args: argparse.Namespace) -> dict[str, Any] | None:
+    """Answer tracker-evidence from the Second Brain's workspace mirror when it is fresh.
+
+    The mirror job (Hermes cron, no agent) runs the same bounded ingest and stores the snapshot;
+    reading it is a local file read instead of a Sheets call plus two Gmail batches. Returns None
+    when the snapshot is missing, older than ``--max-age-minutes``, or does not hold the tracker,
+    so the live path runs instead. The write (``sheets update-lanes``) always goes to Google."""
+    if getattr(args, "live", False):
+        return None
+    path = _mirror_snapshot_path()
+    try:
+        snapshot = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    age = _snapshot_age_minutes(snapshot)
+    max_age = getattr(args, "max_age_minutes", 180)
+    if age is None or age > max_age:
+        return None
+    tracker = _mirror_tracker(snapshot, args.spreadsheet, args.sheet)
+    if tracker is None:
+        return None
+    lanes = [{
+        "lane": row.get("lane", ""), "owner": row.get("pic") or row.get("owner", ""), "status": row.get("status", ""),
+        "latest": row.get("latest", ""), "next": row.get("next", ""), "due": row.get("due", ""),
+        "blocker": row.get("blocker", ""), "evidence": row.get("evidence", ""),
+    } for row in tracker["rows"] if isinstance(row, dict) and str(row.get("lane", "")).strip()]
+
+    import time as _time
+    cutoff_ms = (_time.time() - args.days * 86400) * 1000
+    messages = sorted((m for m in snapshot.get("messages", []) if isinstance(m, dict) and m.get("id")),
+                      key=lambda m: m.get("internal_ms", 0), reverse=True)
+    budget = args.max_messages
+    used: set[str] = set()
+    evidence = []
+    for lane in lanes:
+        query = _lane_query(lane, args.days)
+        owner = str(lane.get("owner", "")).strip().casefold()
+        name = str(lane.get("lane", "")).strip().casefold()
+        if owner in {"unassigned", "workspace owner", "tbd"}:
+            owner = ""
+        found = []
+        if query:
+            # Rank mail that names the lane (subject first, then body) ahead of owner-only
+            # matches, newest first within each tier, so the per-lane cap keeps the
+            # messages about this lane rather than the owner's latest unrelated mail.
+            ranked = []
+            for message in messages:
+                if message.get("internal_ms", 0) and message["internal_ms"] < cutoff_ms:
+                    continue
+                subject = str(message.get("subject", "")).casefold()
+                haystack = f"{subject} {message.get('excerpt') or message.get('snippet', '')}".casefold()
+                sender = str(message.get("from", "")).casefold()
+                if not ((owner and owner in sender) or (name and name in haystack)):
+                    continue
+                tier = 2 if name and name in subject else 1 if name and name in haystack else 0
+                ranked.append((-tier, -int(message.get("internal_ms", 0) or 0), message))
+            for _tier, _age, message in sorted(ranked, key=lambda item: item[:2]):
+                body = str(message.get("excerpt") or message.get("snippet") or "")
+                found.append({
+                    "id": message["id"], "thread_id": message.get("thread_id"), "url": gmail_url(message.get("thread_id")),
+                    "from": message.get("from", ""), "subject": message.get("subject", ""), "date": message.get("date", ""),
+                    "labels": message.get("labels", []),
+                    "excerpt": body[: args.max_chars] + ("..." if len(body) > args.max_chars else ""),
+                })
+                if message["id"] not in used:
+                    used.add(message["id"])
+                    budget -= 1
+                if len(found) >= args.per_lane or budget <= 0:
+                    break
+        evidence.append({"lane": lane.get("lane", ""), "query": query, "messages": found})
+    return {
+        "spreadsheet_id": tracker.get("id"), "sheet": args.sheet, "context": tracker.get("context", []), "lanes": lanes,
+        "evidence": evidence, "newer_than_days": args.days,
+        "source": "second-brain-mirror", "snapshot_generated_at": snapshot.get("generated_at"),
+        "snapshot_age_minutes": round(age, 1),
+        "note": "Served from the Second Brain workspace mirror (local snapshot of the same Gmail and Sheets data). "
+                "Evidence is bounded recent mail per lane; a lane with no messages has no new mail from its owner or naming the lane in this window.",
+    }
+
+
 def sheets_tracker_evidence(args: argparse.Namespace) -> None:
     """Tracker lanes plus the recent mail relevant to each lane, in one call.
 
     Replaces the read-tracker / search-per-lane / read-thread round trips the tracker update
-    otherwise needs. Lane queries run in one Gmail batch, message reads in a second; messages
-    are deduplicated and body excerpts are bounded so the packet stays small."""
+    otherwise needs. Served from the Second Brain's workspace mirror when that snapshot is fresh;
+    otherwise lane queries run in one Gmail batch, message reads in a second; messages are
+    deduplicated and body excerpts are bounded so the packet stays small."""
+    local = _mirror_tracker_evidence(args)
+    if local is not None:
+        print(json.dumps(local, ensure_ascii=False, indent=2))
+        return
     spreadsheet_id = _resolve_spreadsheet_id(args.spreadsheet)
     values = service("sheets", "v4").spreadsheets().values().get(
         spreadsheetId=spreadsheet_id, range=f"'{args.sheet}'!A1:J80",
@@ -497,7 +615,7 @@ def sheets_tracker_evidence(args: argparse.Namespace) -> None:
         evidence.append({"lane": lane.get("lane", ""), "query": queries.get(index), "messages": found})
     print(json.dumps({
         "spreadsheet_id": spreadsheet_id, "sheet": args.sheet, "context": tracker["context"], "lanes": lanes,
-        "evidence": evidence, "newer_than_days": args.days,
+        "evidence": evidence, "newer_than_days": args.days, "source": "google-live",
         "note": "Evidence is bounded recent mail per lane; a lane with no messages has no new mail from its owner or naming the lane in this window.",
     }, ensure_ascii=False, indent=2))
 
@@ -752,6 +870,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--per-lane", dest="per_lane", type=int, default=3, help="Messages per lane (default 3)")
     p.add_argument("--max-messages", dest="max_messages", type=int, default=16, help="Total messages read (default 16)")
     p.add_argument("--max-chars", dest="max_chars", type=int, default=700, help="Body excerpt per message (default 700)")
+    p.add_argument("--max-age-minutes", dest="max_age_minutes", type=int, default=180,
+                   help="Serve from the Second Brain workspace mirror when its snapshot is at most this old (default 180)")
+    p.add_argument("--live", action="store_true", help="Skip the local mirror and read Google directly")
     p.set_defaults(func=sheets_tracker_evidence)
     p = sheets.add_parser("update")
     p.add_argument("spreadsheet_id")
