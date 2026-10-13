@@ -485,6 +485,8 @@ def _mirror_tracker_evidence(args: argparse.Namespace) -> dict[str, Any] | None:
     max_age = getattr(args, "max_age_minutes", 180)
     if age is None or age > max_age:
         return None
+    if (snapshot.get("coverage") or {}).get("errors") or not snapshot.get("messages"):
+        return None  # a partial pull (e.g. Gmail quota error) must not be served as "no recent mail"
     tracker = _mirror_tracker(snapshot, args.spreadsheet, args.sheet)
     if tracker is None:
         return None

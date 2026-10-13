@@ -127,6 +127,33 @@ class SnapshotPersistenceTests(unittest.TestCase):
             self.assertFalse(state.with_suffix(".tmp").exists())
             self.assertTrue((vault / "workspace" / "Google Workspace.md").is_file())
 
+    def test_partial_ingest_leaves_notes_and_snapshot_untouched(self):
+        import contextlib
+        import io
+        import sys
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vault = root / "vault"
+            for folder in ("people", "projects", "meetings"):
+                (vault / folder).mkdir(parents=True)
+            (vault / "index.md").write_text("# Wiki Index\n", encoding="utf-8")
+            state = root / "state" / "workspace-mirror.json"
+            good = root / "good.json"
+            good.write_text(json.dumps(SNAPSHOT), encoding="utf-8")
+            partial = root / "partial.json"
+            partial.write_text(json.dumps({**SNAPSHOT, "messages": [], "coverage": {"errors": ["gmail: Quota exceeded"]}}), encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(sys, "argv", ["x", "--snapshot", str(good), "--vault", str(vault), "--state", str(state)]):
+                self.assertEqual(0, mirror.main())
+            before = (vault / "workspace" / "Gmail.md").read_text(encoding="utf-8")
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err), mock.patch.object(sys, "argv", ["x", "--snapshot", str(partial), "--vault", str(vault), "--state", str(state)]):
+                self.assertEqual(1, mirror.main())
+            self.assertIn("ingest-partial", err.getvalue())
+            self.assertEqual(before, (vault / "workspace" / "Gmail.md").read_text(encoding="utf-8"))
+            self.assertEqual(1, len(json.loads(state.read_text(encoding="utf-8"))["messages"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -386,6 +386,13 @@ def main() -> int:
             subprocess.run([sys.executable, "-X", "utf8", str(ingest), "--output", str(snapshot_path), "--stdout", "none"],
                            check=True, capture_output=True, encoding="utf-8")
         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        errors = list((snapshot.get("coverage") or {}).get("errors") or [])
+        if errors:
+            # A partial pull (typically a Gmail per-minute quota error) must not replace good notes
+            # or a good snapshot: `sheets tracker-evidence` would then report "no recent mail".
+            # Leave everything as it was; the next scheduled run retries.
+            print(json.dumps({"ok": False, "stage": "ingest-partial", "errors": [e[:300] for e in errors]}, ensure_ascii=False), file=sys.stderr)
+            return 1
         counts = build(snapshot, vault)
         counts["snapshot"] = str(save_snapshot(snapshot, args.state or default_state_path()))
         print(json.dumps({"ok": True, **counts}, ensure_ascii=False))

@@ -1195,6 +1195,18 @@ class MirrorTrackerEvidenceTests(unittest.TestCase):
                 self.run_command()
         live.assert_called_once()
 
+    def test_partial_snapshot_with_gmail_error_falls_back_to_google(self):
+        self.write_snapshot(self.now_stamp())
+        data = json.loads(self.state.read_text(encoding="utf-8"))
+        data["messages"] = []
+        data["coverage"] = {"messages": 0, "errors": ["gmail: <HttpError 403 ... Quota exceeded ...>"]}
+        self.state.write_text(json.dumps(data), encoding="utf-8")
+        args = actions.build_parser().parse_args(["sheets", "tracker-evidence", "NeoAgent V2"])
+        self.assertIsNone(actions._mirror_tracker_evidence(args))
+        data["coverage"] = {"messages": 0, "errors": []}
+        self.state.write_text(json.dumps(data), encoding="utf-8")
+        self.assertIsNone(actions._mirror_tracker_evidence(args), "an empty mailbox snapshot is not evidence either")
+
     def test_live_flag_and_unknown_tracker_skip_the_mirror(self):
         self.write_snapshot(self.now_stamp())
         with patch.object(actions, "_resolve_spreadsheet_id", side_effect=RuntimeError("live path")):
