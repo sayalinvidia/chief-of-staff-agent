@@ -13,6 +13,10 @@ commands, tracker update correct**, with the skill text on this branch. Those tw
 battery; on mains the same machine generates about 80 tokens/s instead of 57 to 89, so expect
 somewhat less. With the previous skill text the same model took 184 to 214 s.
 
+**Agents:** the same procedure is packaged as a skill with a verifier in
+`skills\setup\nemotron-bolt-demo-setup\` (`SKILL.md` plus `scripts\check_setup.py`, which checks
+every phase and prints PASS/WARN/FAIL). Load that skill and run the checker after each phase.
+
 Reference machine: ASUS ProArt P14, NVIDIA RTX Spark N1X (ARM64), 128 GB unified memory with a
 96 GB GPU split, Windows 11 Pro, GPU driver 617.74. The commands below are for Windows; the
 llama.cpp and model steps apply to any platform with the matching llama.cpp release.
