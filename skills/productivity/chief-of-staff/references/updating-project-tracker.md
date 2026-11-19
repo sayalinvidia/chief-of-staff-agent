@@ -9,7 +9,7 @@ Use [Command reference](command-reference.md) for `actions.py` commands and argu
 1. **Read the tracker and its evidence in one call.** Run exactly this, once, replacing only the title or ID (it resolves titles itself; do not run `drive search` or `sheets get` first, and do not open the command reference for this step):
 
    ```bash
-   bash 'SKILL_ROOT/scripts/run-actions.sh' sheets tracker-evidence 'TRACKER TITLE OR SPREADSHEET_ID' --sheet 'Campaign Lanes'
+   bash 'C:/Users/NVIDIA/AppData/Local/hermes-channel-build-nvidia-local-offer/profiles/chief-of-staff/skills/productivity/chief-of-staff/scripts/run-actions.sh' sheets tracker-evidence 'TRACKER TITLE OR SPREADSHEET_ID' --sheet 'Campaign Lanes'
    ```
 
    Use `--sheet` for a different tab. It returns every lane plus the recent mail from each lane’s owner or naming the lane, with bounded excerpts and links. When the Second Brain’s workspace mirror is fresh the packet is served from that local snapshot (`"source": "second-brain-mirror"`); otherwise it reads Google directly (`"source": "google-live"`). Either way it is the complete evidence set: do not rerun it with `--live`, and do not search local notes for the tracker. Identify each requested entry’s deliverable, status, and blocker, plus the tracker’s status definitions.

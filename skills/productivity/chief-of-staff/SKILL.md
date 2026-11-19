@@ -52,6 +52,7 @@ For immediate or scheduled Second Brain updates, read **Updating Second Brain** 
 - When the user requests file work without specifying a location, path, or link, check Google Workspace first, then the current local workspace if there’s no clear match. Stop searching once you confidently identify the right file.
 - Confirm drafts were saved and read back file edits once to check they were applied correctly.
 - Link suggested actions to supporting sources using URLs already obtained and short, descriptive link text from existing context, without extra title lookups. Cite Second Brain notes by title only. Never show raw IDs or bare URLs.
+- Start every reply at its first Markdown heading. Do not put a sentence before it (for example “Here's your daily brief:” or “The tracker has been updated. Here's the summary:”) and do not add closing offers or questions after the content.
 - Keep replies focused on requested work and results. Omit routine script, command, and connection details. Use the user's name (if configured) when natural.
 - When writing to files or drafts, use the user's confirmed name when needed. If unknown, omit references to them. For example, write “awaiting decisions” instead of “awaiting the user's decisions.”
 - Don’t repeat an ignored offer to do work just because the work remains unfinished. You can report its status. Offer again only if the user revisits it or new information makes it relevant.
@@ -74,7 +75,7 @@ Do not load the command reference for Start of Day.
 
 The `terminal` tool runs Bash. Omit `bash -c`/`bash -lc` wrappers. Keep heredoc delimiters on their own lines.
 
-Run `actions.py` commands through `bash 'SKILL_ROOT/scripts/run-actions.sh' SERVICE COMMAND [arguments]`. Replace `SKILL_ROOT` with the absolute directory containing this skill's `SKILL.md`. The launcher handles initialization and stops on failure.
+Run `actions.py` commands through `bash 'C:/Users/NVIDIA/AppData/Local/hermes-channel-build-nvidia-local-offer/profiles/chief-of-staff/skills/productivity/chief-of-staff/scripts/run-actions.sh' SERVICE COMMAND [arguments]`. That path is correct on this machine; use it as written. The launcher handles initialization and stops on failure.
 
 1. **Choose necessary reads:** Use existing context to identify the minimum reads needed. Stop reading when required information is available.
 2. **Batch those reads:** Combine independent reads with small combined output in one launcher batch. For other scripts, use one shell call after initialization. Keep potentially large outputs separate.
@@ -84,7 +85,7 @@ Run `actions.py` commands through `bash 'SKILL_ROOT/scripts/run-actions.sh' SERV
 **Email-read batching example:** When two short email threads are needed and their IDs are known, replace the placeholders and submit this entire block in one shell call. Use the same pattern for other independent reads.
 
 ```bash
-bash 'SKILL_ROOT/scripts/run-actions.sh' --batch <<'COMMANDS'
+bash 'C:/Users/NVIDIA/AppData/Local/hermes-channel-build-nvidia-local-offer/profiles/chief-of-staff/skills/productivity/chief-of-staff/scripts/run-actions.sh' --batch <<'COMMANDS'
 action gmail thread 'THREAD_ID_1'
 action gmail thread 'THREAD_ID_2'
 COMMANDS
@@ -93,7 +94,7 @@ COMMANDS
 **Tracker-update example:** Follow [Updating Project Tracker](references/updating-project-tracker.md) before preparing changes. Replace placeholders and example values with verified IDs, exact tab/lane names, and evidence-backed changes. Clear a blocker with `""` only when evidence confirms resolution.
 
 ```bash
-bash 'SKILL_ROOT/scripts/run-actions.sh' sheets update-lanes 'SPREADSHEET_ID' --sheet 'TAB_NAME' --updates-file - --include-details --confirm <<'JSON'
+bash 'C:/Users/NVIDIA/AppData/Local/hermes-channel-build-nvidia-local-offer/profiles/chief-of-staff/skills/productivity/chief-of-staff/scripts/run-actions.sh' sheets update-lanes 'SPREADSHEET_ID' --sheet 'TAB_NAME' --updates-file - --include-details --confirm <<'JSON'
 [
   {
     "lane": "LANE_NAME_1",
@@ -116,21 +117,9 @@ For explicitly requested status-only changes, use `--status-only` instead of `--
 For scripts without a launcher, insert the required command below. Run setup and execution together. Do not split them across shell calls or rely on variables from earlier calls.
 
 ```bash
-# First Hermes home that holds this skill: HERMES_HOME, then each profile, then the root install.
-for COS_HOME in "${HERMES_HOME:-}" "${LOCALAPPDATA:-$HOME/.hermes}/hermes/profiles/"*/ "${LOCALAPPDATA:-}/hermes" "$HOME/.hermes/profiles/"*/ "$HOME/.hermes"; do
-  COS_HOME="${COS_HOME%/}"
-  [ -n "$COS_HOME" ] && [ -f "$COS_HOME/skills/productivity/chief-of-staff/scripts/daily_brief.py" ] && break
-done
-export HERMES_HOME="$COS_HOME"   # the scripts read credentials and state from here
-
-if [ -f "$COS_HOME/hermes-agent/venv/Scripts/python.exe" ]; then
-  PYTHON="$COS_HOME/hermes-agent/venv/Scripts/python.exe"
-elif [ -x "$COS_HOME/hermes-agent/venv/bin/python" ]; then
-  PYTHON="$COS_HOME/hermes-agent/venv/bin/python"
-else
-  PYTHON="$(command -v python3 || command -v python)"
-fi
-
+export HERMES_HOME="C:/Users/NVIDIA/AppData/Local/hermes-channel-build-nvidia-local-offer/profiles/chief-of-staff"   # the scripts read credentials and state from here
+COS_HOME="$HERMES_HOME"
+PYTHON="$COS_HOME/hermes-agent/venv/Scripts/python.exe"
 INGEST="$COS_HOME/skills/productivity/ingest/scripts/ingest.py"
 BRIEF="$COS_HOME/skills/productivity/chief-of-staff/scripts/brief.py"
 DAILY_BRIEF="$COS_HOME/skills/productivity/chief-of-staff/scripts/daily_brief.py"
@@ -139,6 +128,8 @@ SECOND_BRAIN="$COS_HOME/skills/productivity/chief-of-staff/scripts/second_brain.
 
 # Insert the required command here.
 ```
+
+These paths exist and are correct. Do not list directories, test for Python, search for the scripts, or print environment variables before running a command.
 
 Reuse the working Python path, including when fixing shell quoting errors. Run only the commands needed for the task.
 

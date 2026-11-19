@@ -60,16 +60,16 @@ Previews save to a new subfolder under `--output-dir` inside the explicit worksp
 
 ## Examples
 
-Replace `SKILL_ROOT` with the absolute directory containing this skill's `SKILL.md`. Each launcher call initializes itself and stops on failure. For batching, follow the example in the main skill's **How to run the scripts** subsection. Single command:
+Each launcher call initializes itself and stops on failure. For batching, follow the example in the main skill's **How to run the scripts** subsection. Single command:
 
 ```bash
-bash 'SKILL_ROOT/scripts/run-actions.sh' gmail thread THREAD_ID
+bash 'C:/Users/NVIDIA/AppData/Local/hermes-channel-build-nvidia-local-offer/profiles/chief-of-staff/skills/productivity/chief-of-staff/scripts/run-actions.sh' gmail thread THREAD_ID
 ```
 
 Formatting example. Replace the target and include only requested styles. Quoted input goes to its own command:
 
 ```bash
-bash 'SKILL_ROOT/scripts/run-actions.sh' docs format DOCUMENT_ID --find 'Section title' --style-file - --confirm <<'JSON'
+bash 'C:/Users/NVIDIA/AppData/Local/hermes-channel-build-nvidia-local-offer/profiles/chief-of-staff/skills/productivity/chief-of-staff/scripts/run-actions.sh' docs format DOCUMENT_ID --find 'Section title' --style-file - --confirm <<'JSON'
 {"heading":2,"space_after":8}
 JSON
 ```
